@@ -15,13 +15,14 @@ uv sync --locked
 
 Run `cp` only during first setup; retain existing local configuration. `.env` is optional,
 is ignored by Git, and is excluded from Docker builds. Never add credentials to tracked
-files. The example contains only placeholder addresses; no corresponding services run yet.
+files. The example contains placeholder addresses; only Bazoš MCP currently runs as a service.
 
 `uv sync --locked` creates `.venv`, installs the project in editable mode using its
 `src` layout, and installs the default development group. No `PYTHONPATH` workaround is
 needed. `uv.lock` is the dependency source for reproducible installations. The small
-runtime dependency set is Pydantic and Pydantic Settings. pytest and Ruff are development
-dependencies. pytest-asyncio will be added when asynchronous tests exist.
+runtime dependencies are Pydantic, Pydantic Settings, FastMCP, httpx, and BeautifulSoup.
+pytest and Ruff are development dependencies; async tests use `asyncio.run` without
+an additional test plugin.
 
 ## Configuration
 
@@ -34,7 +35,8 @@ Do not use blank values for optional URLs: omit those keys instead.
 | --- | --- | --- |
 | `APP_ENV` | `development` | `development`, `test`, `production` |
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` |
-| `MARKETPLACE_MODE` | `demo` | `demo`, `live`; both reserved for later stages |
+| `MARKETPLACE_MODE` | `demo` | `demo`, `live`; both reserved for the future agent |
+| `BAZOS_ACCESS_PERMITTED` | Unset (disabled) | Exact `true` enables source access only with operator permission; robots is still enforced |
 | `APP_HOST` | `0.0.0.0` | Health server bind hostname/address; IPv4 binding |
 | `APP_PORT` | `8080` | Integer from 1 through 65535 |
 | `LLM_BASE_URL` | Unset (`None`) | Optional HTTP(S) URL |
@@ -43,8 +45,8 @@ Do not use blank values for optional URLs: omit those keys instead.
 | `BAZOS_MCP_URL` | Unset (`None`) | Optional HTTP(S) URL |
 | `SBAZAR_MCP_URL` | Unset (`None`) | Optional HTTP(S) URL |
 
-URLs are checked for syntax only. The application never requires those services in
-Stage 01. Invalid configuration produces a concise error with exit code 2 without
+URLs are checked for syntax only; CLI diagnostics never require those services.
+Invalid configuration produces a concise error with exit code 2 without
 printing supplied values. Version and help remain available for diagnosis.
 
 ## CLI and health server
@@ -85,7 +87,8 @@ docker compose logs -f app
 docker compose down
 ```
 
-The only service is `app`. It builds a non-editable installation with
+The services are `app` and `bazos-mcp`, sharing the existing Dockerfile.
+It builds a non-editable installation with
 `uv sync --locked --no-dev --no-editable`, then copies the virtual environment into a
 non-root runtime image. Its Python command handles termination signals; Compose uses an
 init process and a five-second stop grace period. The healthcheck requests the real HTTP
@@ -93,11 +96,12 @@ endpoint, verifies its JSON status, and requires no curl or host Python installa
 
 Compose loads optional `.env` values. `APP_PORT` controls both the internal listening port
 and the port published on host `127.0.0.1`. Compose sets internal `APP_HOST=0.0.0.0` so port
-forwarding works regardless of local bind preferences. Only the base application runs;
-planned service hostnames in `.env.example` do not need to resolve yet.
+forwarding works regardless of local bind preferences. Bazoš MCP listens internally on
+`http://bazos-mcp:8001/mcp`, with no published host port. LLM, Sbazar, and gateway
+hostnames remain future configuration. See [Bazoš MCP](bazos-mcp.md) for calls and source restrictions.
 
 Source files are packaged into the image; rebuild after changes. Override the command to
-reuse the image for another module in later stages. Python dependencies are locked, and
+reuse the image for the Bazoš MCP module. Python dependencies are locked, and
 the uv image has an explicit version. The Python base tag still receives upstream
 patches; strict bit-for-bit image reproduction would also require pinning image digests.
 No secret `.env` file or development tools are included in the runtime image.
@@ -118,7 +122,9 @@ uv build
 
 Tests isolate environment values and `.env` files in temporary directories. Startup tests
 launch a child Python process, use loopback HTTP, and verify graceful termination for
-SIGINT and SIGTERM. They need no external network, marketplace, LLM, gateway, or MCP server.
+SIGINT and SIGTERM. Bazoš tests use fixture HTML, mocked HTTP, and local MCP/ASGI
+transports. The default suite needs no external network, marketplace, LLM, or gateway.
+The [optional live smoke test](bazos-mcp.md#testing) requires explicit permission and opt-in.
 Dependency installation and image builds require package/image downloads on a cold cache.
 
 Builds produce a wheel and source archive in ignored `dist/`. To use another supported
@@ -133,13 +139,13 @@ uv lock --check
 uv sync --locked
 ```
 
-Review `pyproject.toml` and `uv.lock` together. Do not add FastMCP or LLM libraries until
-their implementation stage. Use `uv lock --upgrade` only for deliberate dependency
+Review `pyproject.toml` and `uv.lock` together. Add libraries only for implemented behavior.
+Use `uv lock --upgrade` only for deliberate dependency
 updates. The build backend is declared separately under `[build-system]`.
 
 Add modules under `src/marketplace_agent/` when they implement real behavior. Introduce
-`domain`, `providers`, and `mcp` in Stage 02 with tests and actual contracts. Keep providers
-independent of MCP, centralize settings, and pass dependencies explicitly. Add shared
+new modules only as needed. The existing `domain`, `providers`, and `mcp` packages
+implement Stage 02. Keep providers independent of MCP and pass dependencies explicitly. Add shared
 services only when behavior is reused. Update documentation as capabilities become real.
 See [architecture.md](architecture.md) for the planned boundaries.
 
@@ -160,4 +166,7 @@ See [architecture.md](architecture.md) for the planned boundaries.
 | Code changes do not appear in Docker | Rebuild with `docker compose up -d --build`. |
 | uv cache is not writable | Set `UV_CACHE_DIR` to a writable directory for that environment. |
 
-Missing future LLM, MCP, and gateway services are expected and are never fatal in Stage 01.
+Missing future LLM, Sbazar MCP, and gateway services never prevent CLI diagnostics.
+Bazoš source access restrictions return tool warnings and do not prevent MCP startup.
+The MCP module reads its permission flag directly from the environment; it does not
+load `.env` on local runs. Compose injects the optional `.env` into both containers.

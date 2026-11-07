@@ -13,7 +13,8 @@ from marketplace_agent.config import Settings
 from marketplace_agent.health import serve
 
 FEATURE_STATUS = (
-    "Marketplace search, MCP servers, and AI agent functionality are not implemented yet."
+    "Bazos MCP search runs as a separate service. "
+    "Sbazar, agentgateway, and AI agent functionality are not implemented yet."
 )
 
 
@@ -27,7 +28,7 @@ def _doctor(settings: Settings) -> int:
         return 1
     print(f"OK Python {platform.python_version()}")
     print(f"OK package: {APP_NAME} {__version__}")
-    print("Future LLM, agentgateway, and MCP connections are not checked at this stage.")
+    print("LLM, agentgateway, and MCP connections are not checked at this stage.")
     print(FEATURE_STATUS)
     return 0
 

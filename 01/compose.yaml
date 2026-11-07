@@ -30,3 +30,15 @@ services:
       start_period: 5s
       retries: 3
     stop_grace_period: 5s
+
+  bazos-mcp:
+    build:
+      context: .
+    init: true
+    env_file:
+      - path: .env
+        required: false
+    command: ["python", "-m", "marketplace_agent.mcp.bazos_server"]
+    expose:
+      - "8001"
+    stop_grace_period: 5s
