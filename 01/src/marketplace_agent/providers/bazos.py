@@ -2,20 +2,20 @@
 
 import os
 import re
-from urllib.parse import unquote, urlencode, urljoin, urlsplit
-from urllib.robotparser import RobotFileParser
+from urllib.parse import urlencode, urljoin, urlsplit
 
 import httpx
 from bs4 import BeautifulSoup
 
 from marketplace_agent.domain.models import Listing, SearchRequest
+from marketplace_agent.providers.common import (
+    USER_AGENT,
+    SourceUnavailable,
+    filter_and_sort,
+    robots_allows,
+)
 
 BASE_URL = "https://www.bazos.cz"
-USER_AGENT = "MarketplaceCourseBot/0.1"
-
-
-class SourceUnavailable(RuntimeError):
-    """Access is restricted or the source cannot be read reliably."""
 
 
 def build_search_url(request: SearchRequest) -> str:
@@ -31,30 +31,6 @@ def build_search_url(request: SearchRequest) -> str:
     # The current page exposes order=1 for price, but its direction/toggle behavior
     # cannot be verified without restricted searches. Sort the fetched page locally.
     return f"{BASE_URL}/search.php?{urlencode(params)}"
-
-
-def robots_allows(robots: str, url: str) -> bool:
-    """Apply robots rules, including Bazos wildcard paths (unsupported by can_fetch)."""
-    if "user-agent:" not in robots.lower():
-        raise SourceUnavailable("Bazos robots.txt could not be verified; search was not fetched.")
-    parser = RobotFileParser()
-    parser.parse(robots.splitlines())
-    entry = next(
-        (entry for entry in parser.entries if entry.applies_to(USER_AGENT)), parser.default_entry
-    )
-    if entry is None:
-        return True
-    parts = urlsplit(url)
-    target = unquote(parts.path + (f"?{parts.query}" if parts.query else ""))
-    matches = []
-    for rule in entry.rulelines:
-        path = unquote(rule.path)
-        anchored = path.endswith("$")
-        path = path.removesuffix("$") if anchored else path
-        pattern = "^" + re.escape(path).replace(r"\*", ".*") + ("$" if anchored else "")
-        if re.search(pattern, target):
-            matches.append((len(path.replace("*", "")), rule.allowance))
-    return max(matches, default=(0, True))[1]
 
 
 def parse_price(value: str) -> int | None:
@@ -103,26 +79,6 @@ def parse_listings(html: str, page_url: str) -> list[Listing]:
     ):
         raise SourceUnavailable("Bazos returned unrecognized HTML or an access challenge.")
     return listings
-
-
-def filter_and_sort(listings: list[Listing], request: SearchRequest) -> list[Listing]:
-    """Recheck price bounds, keep unknown prices last, preserve source order for relevance."""
-    listings = [
-        listing
-        for listing in listings
-        if (
-            request.min_price is None
-            or (listing.price is not None and listing.price >= request.min_price)
-        )
-        and (
-            request.max_price is None
-            or (listing.price is not None and listing.price <= request.max_price)
-        )
-    ]
-    if request.sort_by != "relevance":
-        direction = -1 if request.sort_by == "price_desc" else 1
-        listings.sort(key=lambda listing: (listing.price is None, direction * (listing.price or 0)))
-    return listings[: request.limit]
 
 
 async def _search(request: SearchRequest, client: httpx.AsyncClient) -> dict:

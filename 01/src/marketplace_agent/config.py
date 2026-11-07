@@ -2,7 +2,7 @@
 
 from typing import Literal
 
-from pydantic import AnyHttpUrl, Field
+from pydantic import AnyHttpUrl, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -28,3 +28,8 @@ class Settings(BaseSettings):
     agentgateway_url: AnyHttpUrl | None = None
     bazos_mcp_url: AnyHttpUrl | None = None
     sbazar_mcp_url: AnyHttpUrl | None = None
+
+    unsloth_base_url: AnyHttpUrl = AnyHttpUrl("http://host.docker.internal:8888/v1")
+    unsloth_model: str | None = Field(default=None, min_length=1)
+    unsloth_api_key: SecretStr = SecretStr("")
+    llm_timeout: float = Field(default=120, gt=0, le=3600)

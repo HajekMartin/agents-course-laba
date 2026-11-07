@@ -2,6 +2,7 @@ name: marketplace-agent-01
 
 services:
   app:
+    restart: unless-stopped
     build:
       context: .
     init: true
@@ -12,6 +13,12 @@ services:
     environment:
       APP_HOST: 0.0.0.0
       APP_PORT: ${APP_PORT:-8080}
+      AGENTGATEWAY_URL: http://agentgateway:3000/mcp
+      LLM_BASE_URL: http://agentgateway:3001/v1
+      UNSLOTH_BASE_URL: ${UNSLOTH_BASE_URL:-http://host.docker.internal:8888/v1}
+      UNSLOTH_MODEL: ${UNSLOTH_MODEL:-model-not-configured}
+      UNSLOTH_API_KEY: ${UNSLOTH_API_KEY:-}
+      LLM_TIMEOUT: ${LLM_TIMEOUT:-120}
     ports:
       - "127.0.0.1:${APP_PORT:-8080}:${APP_PORT:-8080}"
     healthcheck:
@@ -32,6 +39,7 @@ services:
     stop_grace_period: 5s
 
   bazos-mcp:
+    restart: unless-stopped
     build:
       context: .
     init: true
@@ -41,4 +49,61 @@ services:
     command: ["python", "-m", "marketplace_agent.mcp.bazos_server"]
     expose:
       - "8001"
+    healthcheck:
+      test: ["CMD", "python", "-m", "marketplace_agent.mcp.healthcheck", "http://127.0.0.1:8001/mcp"]
+      interval: 30s
+      timeout: 10s
+      start_period: 15s
+      retries: 3
     stop_grace_period: 5s
+
+  sbazar-mcp:
+    restart: unless-stopped
+    build:
+      context: .
+    init: true
+    env_file:
+      - path: .env
+        required: false
+    command: ["python", "-m", "marketplace_agent.mcp.sbazar_server"]
+    expose:
+      - "8002"
+    healthcheck:
+      test: ["CMD", "python", "-m", "marketplace_agent.mcp.healthcheck", "http://127.0.0.1:8002/mcp"]
+      interval: 30s
+      timeout: 10s
+      start_period: 15s
+      retries: 3
+    stop_grace_period: 5s
+
+  agentgateway:
+    image: cr.agentgateway.dev/agentgateway:v1.7.0@sha256:60216aafb03d37f94e952ff3d51d2f630a65b10ecaebdc0a864882f92610c45b
+    restart: unless-stopped
+    command: ["--file", "/etc/agentgateway/config.yaml"]
+    environment:
+      UNSLOTH_BASE_URL: ${UNSLOTH_BASE_URL:-http://host.docker.internal:8888/v1}
+      UNSLOTH_MODEL: ${UNSLOTH_MODEL:-model-not-configured}
+      UNSLOTH_API_KEY: ${UNSLOTH_API_KEY:-}
+      LLM_TIMEOUT: ${LLM_TIMEOUT:-120}
+    volumes:
+      - ./config/agentgateway.yaml:/etc/agentgateway/config.yaml:ro
+    ports:
+      - "127.0.0.1:${GATEWAY_MCP_PORT:-3000}:3000"
+      - "127.0.0.1:${GATEWAY_LLM_PORT:-3001}:3001"
+      - "127.0.0.1:${GATEWAY_UI_PORT:-3002}:3002"
+    expose:
+      - "15021"
+    depends_on:
+      bazos-mcp:
+        condition: service_healthy
+      sbazar-mcp:
+        condition: service_healthy
+    # The official image has no shell or HTTP client. This validates configuration;
+    # gateway_check additionally probes native readiness and real MCP/LLM requests.
+    healthcheck:
+      test: ["CMD", "/app/agentgateway", "--file", "/etc/agentgateway/config.yaml", "--validate-only"]
+      interval: 30s
+      timeout: 5s
+      start_period: 5s
+      retries: 3
+    stop_grace_period: 10s

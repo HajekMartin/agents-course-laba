@@ -1,0 +1,54 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/agentgateway/agentgateway/v1.7.0/schema/config.json
+config:
+  storage:
+    mode: readOnly
+  # Both upstreams and clients use stateless HTTP; no persistent session key is needed.
+  session:
+    key: disabled
+  readinessAddr: 0.0.0.0:15021
+  logging:
+    level: info
+    format: json
+
+gateways:
+  marketplace-mcp:
+    port: 3000
+  local-llm:
+    port: 3001
+  diagnostics-ui:
+    port: 3002
+
+mcp:
+  gateways: marketplace-mcp
+  statefulMode: stateless
+  prefixMode: always
+  # Keep the healthy marketplace available when the other target is down.
+  failureMode: failOpen
+  targets:
+    - name: bazos
+      mcp:
+        host: http://bazos-mcp:8001/mcp
+    - name: sbazar
+      mcp:
+        host: http://sbazar-mcp:8002/mcp
+
+llm:
+  gateways: local-llm
+  policies:
+    timeout:
+      requestTimeout: ${LLM_TIMEOUT}s
+      backendRequestTimeout: ${LLM_TIMEOUT}s
+      responseIdleTimeout: ${LLM_TIMEOUT}s
+  models:
+    - name: ${UNSLOTH_MODEL}
+      provider:
+        custom:
+          formats:
+            - type: completions
+      params:
+        baseUrl: ${UNSLOTH_BASE_URL}
+        apiKey: $UNSLOTH_API_KEY
+
+# Read-only UI on a gateway listener; the admin socket stays on container loopback.
+ui:
+  gateways: diagnostics-ui

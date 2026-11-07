@@ -32,7 +32,10 @@ packages = ["src/marketplace_agent"]
 testpaths = ["tests"]
 addopts = "-ra --strict-config --strict-markers"
 filterwarnings = ["error"]
-markers = ["live: optional Bazos smoke test; requires explicit permission and opt-in"]
+markers = [
+    "live: optional marketplace or Unsloth smoke tests; require explicit opt-in",
+    "docker: real agentgateway integration; requires GATEWAY_DOCKER_TESTS=true and Docker",
+]
 
 [tool.ruff]
 target-version = "py312"

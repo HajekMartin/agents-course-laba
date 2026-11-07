@@ -109,16 +109,19 @@ HTML return empty listings with a warning; there are no retries or fallback scra
 ## Technical implementation
 
 - `domain/models.py`: two small Pydantic models, no MCP dependency.
-- `providers/bazos.py`: permission/robots checks, a 15-second httpx timeout,
-  global URL encoding, BeautifulSoup's standard HTML parser, safe marketplace links,
-  deduplication, price filtering/sorting, and geographic form confirmation.
+- `providers/bazos.py`: permission checks, a 15-second httpx timeout, global URL encoding,
+  BeautifulSoup's standard HTML parser, safe marketplace links, deduplication and
+  geographic form confirmation.
+- `providers/common.py`: existing robots and price filtering/sorting helpers, now also
+  reused by Sbazar without changing Bazoš behavior.
 - `mcp/bazos_server.py`: the single tool and Streamable HTTP entry point.
 
 The [reference index.ts](https://github.com/progresak/bazos-mcp-server/blob/main/src/index.ts)
 and [bazos.ts](https://github.com/progresak/bazos-mcp-server/blob/main/src/bazos.ts) informed
 the adapter and card selectors. The graphics-card path and stdio-only transport were
 replaced by global search and Python FastMCP HTTP. No ranking engine, persistence,
-detail tool, geocoding, Sbazar, gateway, frontend, or LLM agent is implemented.
+detail tool, geocoding, gateway, frontend, or LLM agent is implemented.
+Stage 03 adds the independent [Sbazar MCP](sbazar-mcp.md) with the same tool contract.
 
 ## Testing
 

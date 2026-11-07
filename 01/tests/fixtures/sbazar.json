@@ -1,0 +1,43 @@
+{
+  "results": [
+    {
+      "id": 100000001,
+      "seo_name": "100000001-test-phone",
+      "name": "Test phone & case",
+      "price": 12500,
+      "price_by_agreement": false,
+      "locality": {"quarter": "Liberec", "municipality": "Liberec", "district": "Liberec"},
+      "description": "Invented test listing, not a real advertisement."
+    },
+    {
+      "id": 100000002,
+      "seo_name": "test-bike",
+      "name": "Test bike",
+      "price": 4000,
+      "locality": {"municipality": "Turnov", "district": "Semily"},
+      "description": "Invented bicycle listing."
+    },
+    {
+      "id": 100000003,
+      "seo_name": "test-desk",
+      "name": "Test desk",
+      "description": "Model 2026, length 120 cm. These numbers are not a price."
+    },
+    {
+      "id": 100000004,
+      "seo_name": "test-zero-price",
+      "name": "Test zero price",
+      "price": 0,
+      "locality": null,
+      "description": null
+    },
+    {
+      "id": 100000005,
+      "seo_name": "test-negotiated-price",
+      "name": "Test negotiated price",
+      "price": 0,
+      "price_by_agreement": true
+    }
+  ],
+  "pagination": {"total": 5}
+}

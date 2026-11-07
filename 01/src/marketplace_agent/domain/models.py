@@ -51,4 +51,4 @@ class Listing(BaseModel):
     currency: str = "CZK"
     location: str | None
     url: str
-    description: str
+    description: str | None

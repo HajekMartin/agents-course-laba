@@ -15,7 +15,7 @@ uv sync --locked
 
 Run `cp` only during first setup; retain existing local configuration. `.env` is optional,
 is ignored by Git, and is excluded from Docker builds. Never add credentials to tracked
-files. The example contains placeholder addresses; only Bazoš MCP currently runs as a service.
+files. The example contains placeholder addresses; both Bazoš and Sbazar MCP currently run as services.
 
 `uv sync --locked` creates `.venv`, installs the project in editable mode using its
 `src` layout, and installs the default development group. No `PYTHONPATH` workaround is
@@ -37,13 +37,19 @@ Do not use blank values for optional URLs: omit those keys instead.
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` |
 | `MARKETPLACE_MODE` | `demo` | `demo`, `live`; both reserved for the future agent |
 | `BAZOS_ACCESS_PERMITTED` | Unset (disabled) | Exact `true` enables source access only with operator permission; robots is still enforced |
+| `SBAZAR_ACCESS_PERMITTED` | Unset (disabled) | Same opt-in for Sbazar; current robots policy disallows search |
 | `APP_HOST` | `0.0.0.0` | Health server bind hostname/address; IPv4 binding |
 | `APP_PORT` | `8080` | Integer from 1 through 65535 |
-| `LLM_BASE_URL` | Unset (`None`) | Optional HTTP(S) URL |
-| `LLM_MODEL` | Unset (`None`) | Optional nonempty model identifier |
+| `LLM_BASE_URL` | Unset (`None`) | Optional gateway LLM URL, `http://agentgateway:3001/v1` inside Compose |
+| `LLM_MODEL` | Unset (`None`) | Retained Stage 01 field; Stage 04 uses `UNSLOTH_MODEL` |
 | `AGENTGATEWAY_URL` | Unset (`None`) | Optional HTTP(S) URL |
 | `BAZOS_MCP_URL` | Unset (`None`) | Optional HTTP(S) URL |
 | `SBAZAR_MCP_URL` | Unset (`None`) | Optional HTTP(S) URL |
+| `UNSLOTH_BASE_URL` | `http://host.docker.internal:8888/v1` | Existing host LLM API; use its actual port |
+| `UNSLOTH_MODEL` | Unset (`None`) | Exact loaded model ID from Unsloth `/v1/models` |
+| `UNSLOTH_API_KEY` | Empty | Optional secret Bearer token; required by authenticated Unsloth |
+| `LLM_TIMEOUT` | `120` | Positive seconds, up to 3600 for diagnostics |
+| `GATEWAY_MCP_PORT`, `GATEWAY_LLM_PORT`, `GATEWAY_UI_PORT` | `3000`, `3001`, `3002` | Compose host ports, bound to loopback |
 
 URLs are checked for syntax only; CLI diagnostics never require those services.
 Invalid configuration produces a concise error with exit code 2 without
@@ -82,12 +88,16 @@ docker compose up -d --build --wait
 docker compose ps
 docker compose exec app python -m marketplace_agent version
 docker compose exec app python -m marketplace_agent doctor
+docker compose exec app python -m marketplace_agent.gateway_check --mcp-only
+docker compose exec app python -m marketplace_agent.gateway_check
 docker compose exec app python -c "import sys; print(sys.version)"
 docker compose logs -f app
 docker compose down
 ```
 
-The services are `app` and `bazos-mcp`, sharing the existing Dockerfile.
+The Python services are `app`, `bazos-mcp` and `sbazar-mcp`, sharing the existing Dockerfile.
+The fourth service, `agentgateway`, uses the pinned official standalone image and a static
+read-only configuration. See [gateway deployment and tests](agentgateway.md).
 It builds a non-editable installation with
 `uv sync --locked --no-dev --no-editable`, then copies the virtual environment into a
 non-root runtime image. Its Python command handles termination signals; Compose uses an
@@ -97,11 +107,14 @@ endpoint, verifies its JSON status, and requires no curl or host Python installa
 Compose loads optional `.env` values. `APP_PORT` controls both the internal listening port
 and the port published on host `127.0.0.1`. Compose sets internal `APP_HOST=0.0.0.0` so port
 forwarding works regardless of local bind preferences. Bazoš MCP listens internally on
-`http://bazos-mcp:8001/mcp`, with no published host port. LLM, Sbazar, and gateway
-hostnames remain future configuration. See [Bazoš MCP](bazos-mcp.md) for calls and source restrictions.
+`http://bazos-mcp:8001/mcp`; Sbazar is at `http://sbazar-mcp:8002/mcp`. Neither MCP
+port is published. Their healthchecks discover the search tool without marketplace
+requests. The gateway exposes MCP/LLM on localhost ports 3000/3001 and its UI on 3002.
+The host Unsloth process is independent of Compose. See
+[Bazoš MCP](bazos-mcp.md) and [Sbazar MCP](sbazar-mcp.md) for calls and source restrictions.
 
 Source files are packaged into the image; rebuild after changes. Override the command to
-reuse the image for the Bazoš MCP module. Python dependencies are locked, and
+reuse the image for either MCP module. Python dependencies are locked, and
 the uv image has an explicit version. The Python base tag still receives upstream
 patches; strict bit-for-bit image reproduction would also require pinning image digests.
 No secret `.env` file or development tools are included in the runtime image.
@@ -122,9 +135,13 @@ uv build
 
 Tests isolate environment values and `.env` files in temporary directories. Startup tests
 launch a child Python process, use loopback HTTP, and verify graceful termination for
-SIGINT and SIGTERM. Bazoš tests use fixture HTML, mocked HTTP, and local MCP/ASGI
-transports. The default suite needs no external network, marketplace, LLM, or gateway.
-The [optional live smoke test](bazos-mcp.md#testing) requires explicit permission and opt-in.
+SIGINT and SIGTERM. Bazoš/Sbazar tests use fixture HTML/JSON, mocked HTTP, and local
+MCP/ASGI transports, including equivalent tool schemas. The default suite needs no external network, marketplace, LLM, or gateway.
+Opt-in Docker gateway tests use real protocols and fixture/mock upstreams on an isolated
+network; opt-in Unsloth checks require the already running local model. See
+[Stage 04 verification](agentgateway.md#automated-tests).
+The [Bazoš](bazos-mcp.md#testing) and [Sbazar](sbazar-mcp.md#running-and-testing) optional
+live smoke tests require explicit permission and opt-in; a robots disallow skips them.
 Dependency installation and image builds require package/image downloads on a cold cache.
 
 Builds produce a wheel and source archive in ignored `dist/`. To use another supported
@@ -145,7 +162,7 @@ updates. The build backend is declared separately under `[build-system]`.
 
 Add modules under `src/marketplace_agent/` when they implement real behavior. Introduce
 new modules only as needed. The existing `domain`, `providers`, and `mcp` packages
-implement Stage 02. Keep providers independent of MCP and pass dependencies explicitly. Add shared
+implement Stages 02–03. Keep providers independent of MCP and pass dependencies explicitly. Add shared
 services only when behavior is reused. Update documentation as capabilities become real.
 See [architecture.md](architecture.md) for the planned boundaries.
 
@@ -166,7 +183,7 @@ See [architecture.md](architecture.md) for the planned boundaries.
 | Code changes do not appear in Docker | Rebuild with `docker compose up -d --build`. |
 | uv cache is not writable | Set `UV_CACHE_DIR` to a writable directory for that environment. |
 
-Missing future LLM, Sbazar MCP, and gateway services never prevent CLI diagnostics.
-Bazoš source access restrictions return tool warnings and do not prevent MCP startup.
-The MCP module reads its permission flag directly from the environment; it does not
-load `.env` on local runs. Compose injects the optional `.env` into both containers.
+Missing LLM and gateway services never prevent the offline `doctor` command.
+Marketplace source restrictions return tool warnings and do not prevent MCP startup.
+Each MCP module reads its permission flag directly from the environment; it does not
+load `.env` on local runs. Compose injects the optional `.env` into all three containers.

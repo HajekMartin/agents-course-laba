@@ -13,8 +13,9 @@ from marketplace_agent.config import Settings
 from marketplace_agent.health import serve
 
 FEATURE_STATUS = (
-    "Bazos MCP search runs as a separate service. "
-    "Sbazar, agentgateway, and AI agent functionality are not implemented yet."
+    "Bazos and Sbazar MCP search run as separate services; live access is restricted. "
+    "agentgateway connects both MCP servers and an external Unsloth API. "
+    "AI agent functionality is not implemented yet."
 )
 
 
@@ -28,7 +29,7 @@ def _doctor(settings: Settings) -> int:
         return 1
     print(f"OK Python {platform.python_version()}")
     print(f"OK package: {APP_NAME} {__version__}")
-    print("LLM, agentgateway, and MCP connections are not checked at this stage.")
+    print("Connections are not checked at this stage of doctor; use the gateway_check module.")
     print(FEATURE_STATUS)
     return 0
 

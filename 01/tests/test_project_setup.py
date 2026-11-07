@@ -74,9 +74,10 @@ def test_environment_overrides_dotenv(monkeypatch: pytest.MonkeyPatch, tmp_path:
 
 def test_example_configuration_is_valid() -> None:
     settings = Settings(_env_file=PROJECT_ROOT / ".env.example")
-    assert settings.llm_model == "your-model-name"
+    assert settings.unsloth_model == "your-loaded-model-id"
     assert settings.llm_base_url is not None
-    assert settings.llm_base_url.host == "host.docker.internal"
+    assert settings.llm_base_url.host == "agentgateway"
+    assert settings.unsloth_base_url.host == "host.docker.internal"
     assert settings.bazos_mcp_url is not None
     assert settings.sbazar_mcp_url is not None
 
