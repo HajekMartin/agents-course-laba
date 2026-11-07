@@ -96,8 +96,11 @@ services:
     depends_on:
       bazos-mcp:
         condition: service_healthy
+        # Refresh gateway upstream connections/DNS after a Compose rebuild.
+        restart: true
       sbazar-mcp:
         condition: service_healthy
+        restart: true
     # The official image has no shell or HTTP client. This validates configuration;
     # gateway_check additionally probes native readiness and real MCP/LLM requests.
     healthcheck:

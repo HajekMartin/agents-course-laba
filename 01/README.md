@@ -1,10 +1,11 @@
-# Marketplace AI Agent — Stages 01–04
+# Marketplace AI Agent — Stages 01–05
 
 Stage 01 provides configuration validation, CLI diagnostics, and a development health
 endpoint. Stage 02 adds a small Python FastMCP service for Bazoš search. Stage 03 adds
 the independent Sbazar MCP using the same tool contract. Stage 04 federates both servers
-through agentgateway and connects the external local Unsloth Studio API. The AI agent
-remains future work.
+through agentgateway and connects the external local Unsloth Studio API. Stage 05 adds
+a Python LangChain agent with native LLM tool calling, runtime MCP discovery,
+framework-managed orchestration and an interactive CLI.
 
 **Live Bazoš search is currently restricted.** The provider defaults to no external
 requests. Operator permission and an allowing robots policy are required; otherwise
@@ -18,7 +19,9 @@ return no listings and an explicit unsupported-filter warning. See
 
 Status: Stage 01 completed; Stage 02 completed; Stage 03 completed (live marketplace access
 restricted); Stage 04 completed and verified with Docker, fixture backends and live Unsloth;
-Stage 05 AI Agent planned; Stage 06 Integration and finalization planned.
+Stage 05 implemented with offline orchestration tests and a real Unsloth/MCP tool cycle;
+Stage 06 Integration and finalization planned. Real listing retrieval remains subject
+to the existing source restrictions; no synthetic listings are used by the agent.
 
 ## Original school assignment
 
@@ -30,7 +33,7 @@ Stage 05 AI Agent planned; Stage 06 Integration and finalization planned.
 >
 > 📍 Maximální počet bodů, které můžeš získat je 100 bodů.
 
-The assignment is not complete at this stage. Later stages will demonstrate:
+Stage 05 implements the assignment's genuine tool-calling sequence:
 
 ```text
 User → LLM → Tool call → MCP server → Tool result → LLM → Final response
@@ -39,7 +42,11 @@ User → LLM → Tool call → MCP server → Tool result → LLM → Final resp
 ## Current implementation
 
 - Python 3.12+, uv, src layout, Hatchling, Pydantic and Pydantic Settings.
-- Existing `version`, `doctor`, and `serve` CLI commands; `/health` on port 8080.
+- `chat`, `search`, `tools`, `doctor`, `version`, and `serve`; `/health` on port 8080.
+- LangChain `create_agent`, a `BaseChatModel` adapter over the existing httpx gateway
+  client, `StructuredTool` MCP wrappers, validation/aggregation middleware,
+  native OpenAI-compatible Chat Completions, FastMCP discovery/execution,
+  schema validation, bounded history, global price sorting and factual listing rendering.
 - Exactly one `search_listings` tool per MCP server, using Streamable HTTP at `/mcp`:
   Bazoš on port 8001 and Sbazar on 8002.
 - httpx requests, Bazoš HTML/Sbazar JSON summaries, shared price validation and sorting.
@@ -50,12 +57,45 @@ User → LLM → Tool call → MCP server → Tool result → LLM → Final resp
 - OpenAI-compatible chat completions at `http://localhost:3001/v1/chat/completions`,
   routed only to the configured local Unsloth model. Read-only UI at `http://localhost:3002/ui/`.
 
-There is no AI agent, tool-calling orchestration, storage, ranking engine, additional MCP
-tool, or application frontend. `MARKETPLACE_MODE=demo|live` remains reserved for the future agent and does
-not enable marketplace access or return sample listings. `doctor` checks local initialization
-and configuration without contacting services.
-Use `python -m marketplace_agent.gateway_check` inside Compose for explicit online
-diagnostics, including MCP initialization/discovery/invocation and direct/proxied LLM requests.
+The agent uses only gateway endpoints for LLM and MCP; it never calls marketplace
+providers or Unsloth directly. Tool names and schemas come from `tools/list`; only
+search tools in the existing gateway namespaces are approved. There is no storage,
+ranking engine, additional MCP tool, or application frontend.
+`MARKETPLACE_MODE=demo|live` does not enable access or return sample listings: both use
+the same genuine agent. `doctor` checks services; `doctor --offline` preserves local-only
+configuration diagnostics. The separate Stage 04 `gateway_check` module remains available
+for explicit infrastructure checks including direct upstream diagnostics.
+
+## Python agent
+
+```text
+User → CLI → Python Agent ─┬→ agentgateway LLM → host Unsloth
+                          └→ agentgateway MCP → Bazoš MCP / Sbazar MCP
+```
+
+LangChain `create_agent` owns the model/tool loop and the matching tool-result messages.
+`GatewayChatModel` adapts the existing gateway transport to LangChain's `BaseChatModel`;
+discovered MCP tools become `StructuredTool` instances with their original input schemas.
+Middleware enforces execution limits, validates arguments/PSČ, combines tool results and
+allows one final-format correction. LangGraph is an internal LangChain dependency; no
+custom graph, checkpointer, persistence, LangSmith service or extra API key is required.
+
+At startup the agent validates the gateway model route and probes native tool calling
+without executing the probe. For each user message it sends history and discovered tool
+schemas with `tool_choice=auto`. The LLM chooses calls and arguments; Python validates
+them, executes them through MCP, and LangChain returns matching `role=tool` messages. The loop
+supports multiple calls and sequential refinements until a final response or the limit.
+There is no hardcoded search decision or text-to-tool-call fallback.
+
+The model writes a brief summary and may exclude irrelevant retrieved URLs. Python
+renders factual listing data separately, deduplicates original URLs, reapplies the common
+price range, sorts both sources together and applies the final limit. Unknown values
+stay unknown. Source warnings and unverified geography remain visible. Relevance uses
+source order; ordering across sources does not imply comparable relevance scores.
+Guessed postcodes are rejected unless supplied by the user (labelled `PSČ` or sent alone).
+Incomplete searches display authoritative listing/source diagnostics in place of the
+model narrative; the LLM still receives results and generates its final response.
+See [agent implementation and sequence](docs/agent.md).
 
 ## Search tool
 
@@ -92,7 +132,7 @@ cd 01
 uv python install 3.12
 cp .env.example .env  # First setup only; keep an existing local .env.
 uv sync --locked
-uv run --locked python -m marketplace_agent doctor
+uv run --locked python -m marketplace_agent doctor --offline
 uv run --locked python -m marketplace_agent --help
 uv run --locked python -m marketplace_agent version
 uv run --locked python -m marketplace_agent serve
@@ -111,9 +151,32 @@ They bind to `0.0.0.0:8001` and `0.0.0.0:8002`, endpoint `/mcp`. Permission flag
 local runs; MCP modules do not load `.env`. Leave them unset until operator permission
 is obtained. They never override robots restrictions.
 
-Stage 01 settings load environment variables, then optional `.env` in the current
+Settings load environment variables, then optional `.env` in the current
 working directory, then defaults. See [.env.example](.env.example) and
-[development](docs/development.md). Optional service URLs are validated but never probed.
+[development](docs/development.md). For host Python, override the Compose gateway URLs:
+
+```bash
+export LLM_BASE_URL=http://127.0.0.1:3001/v1
+export AGENTGATEWAY_URL=http://127.0.0.1:3000/mcp
+uv run --locked python -m marketplace_agent tools
+uv run --locked python -m marketplace_agent chat --verbose
+uv run --locked python -m marketplace_agent search "Najdi iPhone 15 do 12000 Kč."
+```
+
+Set `UNSLOTH_MODEL` to the existing routed model in `.env`; do not install another model.
+Interactive commands: `exit`, `quit`, and `clear` (reset in-memory history).
+
+Example messages:
+
+- `Najdi MacBook Air M2 od 10000 do 18000 Kč. Prohledej oba bazary.`
+- `Najdi RTX 4070 v Liberci do 50 km.` — the agent asks for a postcode.
+- `Použij PSČ 46001, do 50 km. Prohledej jen Bazoš.`
+- `Najdi nejlevnější PS5 do 100 km od PSČ 11000.`
+- `Seřaď od nejlevnějších, nejvýše 5 výsledků. Nechci pouzdra, nabíječky ani díly.`
+
+Product/price filters carry forward in the current session unless overridden. The history
+budget may evict old complete turns; `clear` starts fresh. No geocoding is added. Sbazar
+cannot satisfy geographic requests and Bazoš distances are source candidates, unverified.
 
 ## Docker
 
@@ -124,6 +187,9 @@ docker compose up -d --build
 docker compose ps
 curl --fail http://localhost:8080/health
 docker compose exec app python -m marketplace_agent doctor
+docker compose exec app python -m marketplace_agent tools
+docker compose exec app python -m marketplace_agent chat --verbose
+docker compose exec app python -m marketplace_agent search "iPhone 15 do 12000 Kč" --verbose
 docker compose exec app python -m marketplace_agent.gateway_check --mcp-only --schemas
 docker compose exec app python -m marketplace_agent.gateway_check
 docker compose logs bazos-mcp
@@ -145,6 +211,9 @@ The LLM already runs independently on the Mac; Compose never downloads or starts
 Set `UNSLOTH_BASE_URL` (using `host.docker.internal` and the actual port), `UNSLOTH_MODEL`
 (a loaded ID from `/v1/models`), and `UNSLOTH_API_KEY` in your ignored `.env`.
 `LLM_TIMEOUT` sets the request timeout in seconds. No cloud fallback is configured.
+Agent iteration/call/context limits, output budget and `MCP_TIMEOUT` are documented in
+[agent settings](docs/agent.md#configuration). Compose injects optional `.env` values
+into the existing `app` container; no additional Dockerfile or service is needed.
 See [agentgateway and Unsloth](docs/agentgateway.md) for model discovery, authentication,
 Docker networking, endpoints, integration tests, and troubleshooting.
 
@@ -156,6 +225,10 @@ uv run --locked ruff check .
 uv run --locked ruff format --check .
 # Optional real gateway tests with fixture marketplaces and a mock LLM; no Unsloth needed:
 GATEWAY_DOCKER_TESTS=true uv run --locked pytest tests/integration/test_agentgateway.py
+# Optional actual Unsloth + gateway + both MCP servers (not fixture data):
+AGENT_LIVE_E2E=true \
+LLM_BASE_URL=http://127.0.0.1:3001/v1 AGENTGATEWAY_URL=http://127.0.0.1:3000/mcp \
+uv run --locked pytest tests/integration/test_agent_live.py -s
 ```
 
 Tests cover Stage 01 startup/shutdown and configuration, search URLs, fixture HTML/JSON,
@@ -166,6 +239,23 @@ routing/authentication/parameter preservation, timeouts, and unavailable upstrea
 Docker and live Unsloth tests are opt-in. Two marketplace smoke tests are also skipped
 by default; see [Bazoš opt-in](docs/bazos-mcp.md#testing)
 and [Sbazar opt-in](docs/sbazar-mcp.md#running-and-testing).
+
+Agent tests cover runtime discovery/schema/name mapping, argument validation, native
+response parsing, MCP execution, returning results to the model, multiple/sequential
+calls, both sources, combined price range/sort/limit/deduplication, exclusions, partial
+failure/geographic warnings, history/clear, iteration limits and CLI diagnostics.
+LangChain tests also verify schema/alias preservation, concurrent tools completing out
+of order, stable source relevance ordering and isolated per-invocation result/budget state.
+The isolated Docker test runs the full agent with an explicitly mocked LLM and existing
+marketplace fixtures; this establishes protocol behavior, not real-model intelligence.
+The separate live test establishes native Unsloth compatibility only when it actually runs.
+
+On 2026-11-07 the configured local Unsloth model passed the native-call probe and a real
+gateway → both MCP calls → LLM final response cycle. Both sources returned their existing
+disabled-access warnings and zero listings. This confirms native tool calling and error
+handling; populated live marketplace results have **not** been verified.
+The selected model occasionally guessed a town postcode or missed final JSON formatting;
+the agent rejects ungrounded postcodes and allows one bounded formatting correction.
 
 ## Technical outline
 
@@ -197,8 +287,8 @@ verification limits are documented in [Sbazar MCP](docs/sbazar-mcp.md).
    JSON adapter and tests. Live access remains restricted; geography explicitly unsupported.
 4. **Stage 04 — agentgateway:** completed with static MCP federation, distinct search-tool
    names, local Unsloth proxy, diagnostics and isolated Docker integration tests.
-5. **Stage 05 — Python AI Agent (planned):** add LLM integration, MCP tool discovery, tool calling,
-   tool result handling, orchestration, and an interactive CLI.
-6. **Stage 06 — Integration and finalization (planned):** add end-to-end tests, final documentation,
-   assignment compliance verification, and a demonstration scenario showing the complete
-   tool-call cycle.
+5. **Stage 05 — Python AI Agent:** implemented with runtime MCP discovery, native tool calling,
+   bounded orchestration/history, result aggregation, CLI, tests and documentation.
+6. **Stage 06 — Integration and finalization (planned):** broaden scenario verification,
+   resolve source-access/adapter limitations through authorized means, verify populated
+   live results where permitted, finalize the school submission and demonstration.

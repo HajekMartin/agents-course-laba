@@ -110,9 +110,9 @@ def test_invalid_configuration_is_rejected(
 def test_help_describes_available_commands_and_implementation_status() -> None:
     result = run_cli("--help")
     assert result.returncode == 0
-    for command in ("version", "doctor", "serve"):
+    for command in ("version", "doctor", "serve", "chat", "search", "tools"):
         assert command in result.stdout
-    assert "not implemented yet" in " ".join(result.stdout.split())
+    assert "native LLM tool calling" in " ".join(result.stdout.split())
 
 
 def test_version_works_even_with_invalid_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -123,19 +123,19 @@ def test_version_works_even_with_invalid_configuration(monkeypatch: pytest.Monke
 
 
 def test_doctor_succeeds_without_future_services() -> None:
-    result = run_cli("doctor")
+    result = run_cli("doctor", "--offline")
     assert result.returncode == 0
     assert "OK configuration" in result.stdout
     assert "OK Python" in result.stdout
     assert "OK package" in result.stdout
-    assert "not checked at this stage" in result.stdout
-    assert "not implemented yet" in result.stdout
+    assert "Local configuration checks passed" in result.stdout
+    assert "native LLM tool calling" in result.stdout
 
 
 def test_doctor_accepts_unreachable_future_service_urls(monkeypatch: pytest.MonkeyPatch) -> None:
     for variable in ("LLM_BASE_URL", "AGENTGATEWAY_URL", "BAZOS_MCP_URL", "SBAZAR_MCP_URL"):
         monkeypatch.setenv(variable, "http://127.0.0.1:1/unavailable")
-    result = run_cli("doctor")
+    result = run_cli("doctor", "--offline")
     assert result.returncode == 0
 
 
@@ -153,7 +153,7 @@ def test_cli_reports_configuration_errors_without_echoing_values(
 
 
 def test_unknown_command_fails() -> None:
-    result = run_cli("search")
+    result = run_cli("unknown-command")
     assert result.returncode == 2
     assert "invalid choice" in result.stderr
 
@@ -222,7 +222,7 @@ def test_server_starts_serves_health_and_shuts_down(
         stdout, stderr = process.communicate(timeout=5)
         assert process.returncode == 0, stdout + stderr
         assert "Health server stopped" in stderr
-        assert "not implemented yet" in stderr
+        assert "native LLM tool calling" in stderr
     finally:
         if process.poll() is None:
             process.kill()

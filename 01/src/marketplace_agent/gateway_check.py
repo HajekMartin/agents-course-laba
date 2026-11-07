@@ -194,7 +194,7 @@ def main() -> int:
     try:
         settings = Settings()
     except ValidationError:
-        print("FAIL configuration: run the offline doctor for field validation")
+        print("FAIL configuration: run doctor --offline for field validation")
         return 2
     return asyncio.run(run(args, settings))
 

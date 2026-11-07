@@ -1,4 +1,4 @@
-"""Project foundation for the future marketplace AI agent."""
+"""Marketplace agent with native LLM tool calling through agentgateway."""
 
 from importlib.metadata import version
 

@@ -87,6 +87,50 @@ class OpenAIHandler(BaseHTTPRequestHandler):
             return
         if payload["messages"][-1]["content"] == "slow":
             time.sleep(1)
+        message = {"role": "assistant", "content": json.dumps(payload)}
+        finish_reason = "stop"
+        if payload.get("tools"):
+            if payload["messages"][-1]["role"] == "tool":
+                calls = [
+                    call
+                    for item in payload["messages"]
+                    if item.get("tool_calls")
+                    for call in item["tool_calls"]
+                ]
+                outputs = [item for item in payload["messages"] if item["role"] == "tool"]
+                assert {item["tool_call_id"] for item in outputs} == {call["id"] for call in calls}
+                combined = json.loads(outputs[-1]["content"])["combined"]
+                assert combined["count"] > 0
+                message["content"] = json.dumps(
+                    {"answer": "Fixture search finished.", "exclude_urls": []}
+                )
+            else:
+                tools = payload["tools"]
+                if payload.get("tool_choice") == "required":
+                    tools = tools[:1]  # Capability probe; this call must never be executed.
+                message = {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": f"fixture-call-{index}",
+                            "type": "function",
+                            "function": {
+                                "name": tool["function"]["name"],
+                                "arguments": json.dumps(
+                                    {
+                                        "query": "test product",
+                                        "min_price": 1000,
+                                        "sort_by": "price_asc",
+                                        "limit": 3,
+                                    }
+                                ),
+                            },
+                        }
+                        for index, tool in enumerate(tools)
+                    ],
+                }
+                finish_reason = "tool_calls"
         self.respond(
             200,
             {
@@ -97,8 +141,8 @@ class OpenAIHandler(BaseHTTPRequestHandler):
                 "choices": [
                     {
                         "index": 0,
-                        "message": {"role": "assistant", "content": json.dumps(payload)},
-                        "finish_reason": "stop",
+                        "message": message,
+                        "finish_reason": finish_reason,
                     }
                 ],
                 "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},

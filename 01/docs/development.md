@@ -20,7 +20,9 @@ files. The example contains placeholder addresses; both Bazoš and Sbazar MCP cu
 `uv sync --locked` creates `.venv`, installs the project in editable mode using its
 `src` layout, and installs the default development group. No `PYTHONPATH` workaround is
 needed. `uv.lock` is the dependency source for reproducible installations. The small
-runtime dependencies are Pydantic, Pydantic Settings, FastMCP, httpx, and BeautifulSoup.
+runtime dependencies include Pydantic, Pydantic Settings, FastMCP, httpx, JSON Schema,
+BeautifulSoup and LangChain. LangChain supplies the agent runtime; its LangGraph/LangSmith
+libraries are transitive dependencies and do not require separately deployed services.
 pytest and Ruff are development dependencies; async tests use `asyncio.run` without
 an additional test plugin.
 
@@ -35,7 +37,7 @@ Do not use blank values for optional URLs: omit those keys instead.
 | --- | --- | --- |
 | `APP_ENV` | `development` | `development`, `test`, `production` |
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` |
-| `MARKETPLACE_MODE` | `demo` | `demo`, `live`; both reserved for the future agent |
+| `MARKETPLACE_MODE` | `demo` | `demo`, `live`; both use the real agent and neither enables source access |
 | `BAZOS_ACCESS_PERMITTED` | Unset (disabled) | Exact `true` enables source access only with operator permission; robots is still enforced |
 | `SBAZAR_ACCESS_PERMITTED` | Unset (disabled) | Same opt-in for Sbazar; current robots policy disallows search |
 | `APP_HOST` | `0.0.0.0` | Health server bind hostname/address; IPv4 binding |
@@ -48,10 +50,12 @@ Do not use blank values for optional URLs: omit those keys instead.
 | `UNSLOTH_BASE_URL` | `http://host.docker.internal:8888/v1` | Existing host LLM API; use its actual port |
 | `UNSLOTH_MODEL` | Unset (`None`) | Exact loaded model ID from Unsloth `/v1/models` |
 | `UNSLOTH_API_KEY` | Empty | Optional secret Bearer token; required by authenticated Unsloth |
-| `LLM_TIMEOUT` | `120` | Positive seconds, up to 3600 for diagnostics |
+| `LLM_TIMEOUT` | `120` | Positive per-request seconds, up to 3600 |
 | `GATEWAY_MCP_PORT`, `GATEWAY_LLM_PORT`, `GATEWAY_UI_PORT` | `3000`, `3001`, `3002` | Compose host ports, bound to loopback |
 
-URLs are checked for syntax only; CLI diagnostics never require those services.
+Agent limits and timeouts are listed in [agent configuration](agent.md#configuration).
+URLs are validated at load time. Online `doctor` probes gateway/LLM/MCP connections;
+`doctor --offline` keeps local diagnostics available independently of those services.
 Invalid configuration produces a concise error with exit code 2 without
 printing supplied values. Version and help remain available for diagnosis.
 
@@ -61,12 +65,16 @@ printing supplied values. Version and help remain available for diagnosis.
 uv run --locked python -m marketplace_agent --help
 uv run --locked python -m marketplace_agent version
 uv run --locked python -m marketplace_agent doctor
+uv run --locked python -m marketplace_agent doctor --offline
+uv run --locked python -m marketplace_agent chat --verbose
+uv run --locked python -m marketplace_agent search "iPhone 15 do 12000 Kč"
+uv run --locked python -m marketplace_agent tools
 uv run --locked marketplace-agent doctor
 uv run --locked python -m marketplace_agent serve
 ```
 
-`doctor` checks the loaded configuration, Python 3.12+, and package initialization.
-It does not perform network requests. `serve` is a lightweight development diagnostics
+`doctor` checks the loaded configuration, Python 3.12+, package initialization and online
+gateway services. Use `--offline` to skip all network requests. `serve` is a lightweight development diagnostics
 process, not an API for marketplace search. From another terminal:
 
 ```bash
@@ -183,7 +191,7 @@ See [architecture.md](architecture.md) for the planned boundaries.
 | Code changes do not appear in Docker | Rebuild with `docker compose up -d --build`. |
 | uv cache is not writable | Set `UV_CACHE_DIR` to a writable directory for that environment. |
 
-Missing LLM and gateway services never prevent the offline `doctor` command.
+Missing LLM and gateway services never prevent `doctor --offline`, help, version or serve.
 Marketplace source restrictions return tool warnings and do not prevent MCP startup.
 Each MCP module reads its permission flag directly from the environment; it does not
 load `.env` on local runs. Compose injects the optional `.env` into all three containers.

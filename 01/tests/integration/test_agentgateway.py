@@ -19,6 +19,7 @@ import pytest
 import yaml
 from fastmcp import Client
 
+from marketplace_agent.agent import connect_agent
 from marketplace_agent.config import Settings
 from marketplace_agent.gateway_check import (
     SEARCH_TOOLS,
@@ -76,6 +77,10 @@ def test_llm_configuration_uses_only_the_environment_and_custom_completions() ->
     }
     assert all(v == "${LLM_TIMEOUT}s" for v in CONFIG["llm"]["policies"]["timeout"].values())
     assert "depends_on" not in COMPOSE["services"]["app"]
+    assert all(
+        dependency["restart"]
+        for dependency in COMPOSE["services"]["agentgateway"]["depends_on"].values()
+    )
 
 
 @pytest.mark.parametrize(
@@ -158,7 +163,15 @@ def infrastructure(tmp_path_factory: pytest.TempPathFactory) -> Iterator:
                 "/config.yaml",
             )
             containers.append(name)
-            ports = json.loads(docker("inspect", name).stdout)[0]["NetworkSettings"]["Ports"]
+            # Docker can return from detached run before Desktop populates host bindings.
+            deadline = time.monotonic() + 10
+            while True:
+                ports = json.loads(docker("inspect", name).stdout)[0]["NetworkSettings"]["Ports"]
+                if all(ports.get(f"{port}/tcp") for port in (3000, 3001, 15021)):
+                    break
+                if time.monotonic() >= deadline:
+                    pytest.fail("Gateway host-port bindings were not assigned")
+                time.sleep(0.05)
             urls = {
                 "mcp": f"http://127.0.0.1:{ports['3000/tcp'][0]['HostPort']}/mcp",
                 "llm": f"http://127.0.0.1:{ports['3001/tcp'][0]['HostPort']}/v1",
@@ -372,6 +385,35 @@ def test_llm_without_api_key_and_with_custom_base_path(infrastructure) -> None:
     )
     response.raise_for_status()
     validate_completion(response.json(), TEST_MODEL)
+
+
+@DOCKER
+@pytest.mark.docker
+def test_agent_native_tool_cycle_with_real_gateway_and_fixture_marketplaces(infrastructure) -> None:
+    """Real HTTP/MCP orchestration, with an explicitly mocked LLM and invented fixtures."""
+    _, urls, _ = infrastructure
+
+    async def run():
+        settings = Settings(
+            _env_file=None,
+            unsloth_model=TEST_MODEL,
+            llm_base_url=urls["llm"],
+            agentgateway_url=urls["mcp"],
+        )
+        async with connect_agent(settings) as agent:
+            reply = await agent.ask("Search both sources for test product, from 1000 CZK, limit 3.")
+            assert reply.tool_calls == 2
+            assert reply.results["searched_sources"] == ["Bazoš", "Sbazar"]
+            assert reply.results["count"] == 3
+            assert [listing["price"] for listing in reply.results["listings"]] == [
+                4000,
+                4000,
+                12500,
+            ]
+            assert reply.text == "Fixture search finished."
+            assert all(item["url"].startswith("https://") for item in reply.results["listings"])
+
+    asyncio.run(run())
 
 
 @pytest.mark.live

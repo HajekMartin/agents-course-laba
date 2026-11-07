@@ -2,7 +2,7 @@
 
 agentgateway provides one MCP connection for both existing marketplaces and a separate
 OpenAI-compatible connection for the local model. It performs protocol routing only.
-There is no Python AI agent, prompt/tool orchestration, or LLM tool-calling loop.
+Stage 05 adds the [Python AI agent](agent.md) on top of these unchanged routes.
 
 ## Distribution and configuration
 
@@ -48,6 +48,11 @@ published. The supported UI gateway listener above makes the UI accessible witho
 exposing administrative shutdown/config-dump endpoints. Host gateway ports are
 configurable; internal listeners remain 3000/3001/3002. Every published port binds to
 `127.0.0.1`. Neither marketplace upstream is published.
+
+Compose restarts the gateway when either MCP dependency is recreated (`depends_on.restart`).
+This refreshes upstream connections/DNS: an already running v1.7.0 gateway was observed
+returning MCP HTTP 500/connection refused after Python-service rebuilds changed their
+container IPs. This is lifecycle handling within the existing four services.
 
 The MCP endpoint exchanges JSON-RPC protocol messages and tool results. The LLM endpoint
 accepts messages and generation parameters and returns an assistant completion. Sending
@@ -188,7 +193,8 @@ a direct Unsloth completion, and the same completion through agentgateway. The L
 requests include the configured model ID, one user message, and a 128-token budget.
 Validation checks the completion type, assistant message, choices, and exact model
 identity; wording is not required to match. Failures return nonzero and redact request
-headers, upstream bodies, and credentials. `doctor` remains an offline configuration check.
+headers, upstream bodies, and credentials. Stage 05 `doctor` checks the agent endpoints;
+`doctor --offline` retains the original local-only configuration check.
 
 For a single LLM request from `app` without printing its key:
 
@@ -213,7 +219,7 @@ PY
 ```
 
 Successful chat transport does not establish native tool-calling compatibility. Stage 05
-will evaluate tool calling and implement the agent loop.
+adds a native-call capability probe and opt-in full-agent test; see [actual verification](agent.md#tests-and-actual-compatibility).
 
 ## Automated tests
 

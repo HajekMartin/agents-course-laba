@@ -150,4 +150,5 @@ live integration success. Both flags must be exported or supplied in the shell.
 `domain/models.py` supplies the existing request validation and listing fields.
 `providers/common.py` holds the Bazoš price filter/sort and robots helpers, extracted
 without changing Bazoš behavior. `mcp/sbazar_server.py` mirrors the Bazoš single-tool
-wrapper. There is no additional geographic subsystem, storage, gateway or AI agent.
+wrapper. This provider introduces no geographic subsystem or storage. The Stage 05
+[Python agent](agent.md) consumes it through the existing Stage 04 gateway.
