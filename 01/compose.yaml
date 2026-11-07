@@ -1,0 +1,32 @@
+name: marketplace-agent-01
+
+services:
+  app:
+    build:
+      context: .
+    init: true
+    env_file:
+      - path: .env
+        required: false
+    # Keep the internal bind address stable; APP_PORT still comes from .env.
+    environment:
+      APP_HOST: 0.0.0.0
+      APP_PORT: ${APP_PORT:-8080}
+    ports:
+      - "127.0.0.1:${APP_PORT:-8080}:${APP_PORT:-8080}"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import json, os, urllib.request;
+          port = os.environ.get('APP_PORT', '8080');
+          response = urllib.request.build_opener(urllib.request.ProxyHandler({})).open(
+          f'http://127.0.0.1:{port}/health', timeout=2);
+          assert response.status == 200 and json.load(response)['status'] == 'ok'
+      interval: 10s
+      timeout: 3s
+      start_period: 5s
+      retries: 3
+    stop_grace_period: 5s
