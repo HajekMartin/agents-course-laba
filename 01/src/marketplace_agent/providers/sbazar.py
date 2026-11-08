@@ -10,7 +10,7 @@ from marketplace_agent.domain.models import Listing, SearchRequest
 from marketplace_agent.providers.common import (
     USER_AGENT,
     SourceUnavailable,
-    filter_and_sort,
+    search_result,
 )
 
 BASE_URL = "https://www.sbazar.cz"
@@ -19,9 +19,13 @@ SEARCH_PATH = "/api/v1/items/search"
 LOCALITY_PATH = "/api/v2/localities/suggest"
 
 
-def build_search_url(request: SearchRequest, *, locality: str | None = None) -> str:
+def build_search_url(
+    request: SearchRequest, *, locality: str | None = None, offset: int = 0
+) -> str:
     """Translate existing filters to the source's verified native query parameters."""
     params = {"phrase": request.query, "limit": "60"}
+    if offset:
+        params["offset"] = str(offset)
     if request.min_price is not None:
         params["price_from"] = str(request.min_price)
     if request.max_price is not None:
@@ -129,24 +133,42 @@ async def _search(request: SearchRequest, client: httpx.AsyncClient) -> dict:
             f"using its first municipal suggestion and applied its native {radius} km filter. "
             "Postal areas may cover multiple places; exact listing distances are unverified."
         )
-    url = build_search_url(request, locality=locality)
-    response = await client.get(url, follow_redirects=False)
-    response.raise_for_status()
-    if "application/json" not in response.headers.get("content-type", "").lower():
-        raise SourceUnavailable("Sbazar did not return a JSON search response.")
-    try:
-        payload = response.json()
-    except ValueError as error:
-        raise SourceUnavailable("Sbazar returned invalid JSON.") from error
-    selected = filter_and_sort(parse_listings(payload), request)
-    result = {
-        "query": request.query,
-        "count": len(selected),
-        "listings": [listing.model_dump() for listing in selected],
-    }
-    if warning:
-        result["warning"] = warning
-    return result
+    listings, pages, has_more = [], 0, False
+    for page in range(request.max_pages):
+        try:
+            response = await client.get(
+                build_search_url(request, locality=locality, offset=page * 60),
+                follow_redirects=False,
+            )
+            response.raise_for_status()
+            if "application/json" not in response.headers.get("content-type", "").lower():
+                raise SourceUnavailable("Sbazar did not return a JSON search response.")
+            try:
+                payload = response.json()
+            except ValueError as error:
+                raise SourceUnavailable("Sbazar returned invalid JSON.") from error
+            batch = parse_listings(payload)
+        except (SourceUnavailable, httpx.HTTPError) as exc:
+            if not pages:
+                raise
+            warning = (
+                f"{warning or ''} Further Sbazar page failed "
+                f"({type(exc).__name__}); partial results."
+            )
+            break
+        listings.extend(batch)
+        pages += 1
+        pagination = payload.get("pagination")
+        total = pagination.get("total") if isinstance(pagination, dict) else None
+        has_more = (
+            (page * 60 + len(payload["results"]) < total)
+            if type(total) is int
+            else len(payload["results"]) == 60
+        )
+        if not payload["results"] or not has_more:
+            has_more = False
+            break
+    return search_result(request, listings, pages, has_more, warning)
 
 
 async def search_listings(request: SearchRequest, client: httpx.AsyncClient | None = None) -> dict:

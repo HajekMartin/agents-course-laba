@@ -17,11 +17,13 @@ async def search_listings(
     radius_km: int | None = None,
     sort_by: SortOrder = "relevance",
     limit: int = 10,
+    max_pages: int = 3,
 ) -> dict:
     """Search all Bazos categories; prices in CZK, location as Czech postcode (46001).
 
     Radius requires location; location alone uses 25 km. Limit is 1..50, radius 0..1000.
-    Relevance preserves source order; prices are sorted within one fetched result page.
+    Scans up to max_pages (1..5, default 3), filters obvious accessories/trades before
+    price sorting and limit. Searches for accessories remain supported. No price floor is inferred.
     Returns query, count, listings (title, price, currency, location, url, description),
     and an optional warning about access or unverifiable geographic filtering.
     """
@@ -33,6 +35,7 @@ async def search_listings(
         radius_km=radius_km,
         sort_by=sort_by,
         limit=limit,
+        max_pages=max_pages,
     )
     return await bazos.search_listings(request)
 

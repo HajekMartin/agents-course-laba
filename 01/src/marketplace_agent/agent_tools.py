@@ -137,6 +137,15 @@ async def execute_tool(
         }
         if "warning" in payload:
             normalized["warning"] = payload["warning"]
+        for key in ("pages_scanned", "scanned_count", "filtered_count"):
+            if key in payload:
+                if type(payload[key]) is not int or payload[key] < 0:
+                    raise ValueError("Invalid page coverage metadata")
+                normalized[key] = payload[key]
+        if "has_more" in payload:
+            if type(payload["has_more"]) is not bool:
+                raise ValueError("Invalid pagination flag")
+            normalized["has_more"] = payload["has_more"]
         return normalized
     except (TimeoutError, asyncio.CancelledError):
         if asyncio.current_task().cancelling():

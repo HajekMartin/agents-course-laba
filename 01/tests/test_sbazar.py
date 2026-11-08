@@ -149,7 +149,15 @@ def test_sort_ties_keep_source_order(permitted: None) -> None:
 
 
 def test_empty_results(permitted: None) -> None:
-    assert search(payload={"results": []}) == {"query": "test", "count": 0, "listings": []}
+    assert search(payload={"results": []}) == {
+        "query": "test",
+        "count": 0,
+        "listings": [],
+        "pages_scanned": 1,
+        "has_more": False,
+        "scanned_count": 0,
+        "filtered_count": 0,
+    }
 
 
 @pytest.mark.parametrize(
@@ -438,5 +446,8 @@ def test_streamable_http_discovery_and_invocation(monkeypatch: pytest.MonkeyPatc
 )
 def test_optional_live_smoke() -> None:
     result = asyncio.run(sbazar.search_listings(SearchRequest(query="kolo", limit=1)))
-    assert "warning" not in result, result
-    assert result["count"] == len(result["listings"]) <= 1
+    assert result["count"] == len(result["listings"]) == 1, result
+    assert 1 <= result["pages_scanned"] <= 3
+    assert result["listings"][0]["url"].startswith("https://")
+    if result["has_more"]:
+        assert "further source results were not fetched" in result["warning"]

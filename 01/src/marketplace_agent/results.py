@@ -46,6 +46,13 @@ class SearchResults:
             "listings": [listing.model_dump() for listing in selected],
             "count": len(selected),
             "searched_sources": [MARKETPLACES[source] for source in self.responses],
+            "pages_scanned": sum(
+                payload.get("pages_scanned", 0) for payload in self.responses.values()
+            ),
+            "filtered_count": sum(
+                payload.get("filtered_count", 0) for payload in self.responses.values()
+            ),
+            "has_more": any(payload.get("has_more", False) for payload in self.responses.values()),
             "warnings": warnings,
             "incomplete": bool(warnings),
             "coverage": "Only fetched source pages; not an exhaustive marketplace search.",
@@ -68,6 +75,11 @@ def render_results(payload: dict) -> str:
     if not payload:
         return ""
     lines = []
+    if payload.get("pages_scanned"):
+        lines.append(
+            f"Checked {payload['pages_scanned']} source page(s); "
+            f"filtered {payload['filtered_count']} obvious irrelevant ads before sorting."
+        )
     if lookup := payload.get("postcode_lookup"):
         lines.append(
             f"Search postcode: {lookup['postcode']} "

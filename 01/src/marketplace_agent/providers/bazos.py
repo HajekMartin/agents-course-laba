@@ -2,7 +2,7 @@
 
 import os
 import re
-from urllib.parse import urlencode, urljoin, urlsplit
+from urllib.parse import parse_qs, urlencode, urljoin, urlsplit
 
 import httpx
 from bs4 import BeautifulSoup
@@ -11,15 +11,17 @@ from marketplace_agent.domain.models import Listing, SearchRequest
 from marketplace_agent.providers.common import (
     USER_AGENT,
     SourceUnavailable,
-    filter_and_sort,
+    search_result,
 )
 
 BASE_URL = "https://www.bazos.cz"
 
 
-def build_search_url(request: SearchRequest) -> str:
+def build_search_url(request: SearchRequest, *, offset: int = 0) -> str:
     """Use the global form, not a guessed product/category path."""
     params = {"hledat": request.query, "rubriky": "www", "kitx": "ano"}
+    if offset:
+        params["crz"] = str(offset)
     if request.min_price is not None:
         params["cenaod"] = str(request.min_price)
     if request.max_price is not None:
@@ -81,35 +83,65 @@ def parse_listings(html: str, page_url: str) -> list[Listing]:
 
 
 async def _search(request: SearchRequest, client: httpx.AsyncClient) -> dict:
-    url = build_search_url(request)
-    response = await client.get(url, follow_redirects=False)
-    response.raise_for_status()
-    if "text/html" not in response.headers.get("content-type", ""):
-        raise SourceUnavailable("Bazos did not return an HTML search page.")
-    listings = parse_listings(response.text, str(response.url))
-    soup = BeautifulSoup(response.text, "html.parser")
-    query = soup.select_one('input[name="hledat"]')
-    if listings and (query is None or str(query.get("value", "")).strip() != request.query):
-        raise SourceUnavailable("Bazos did not confirm the requested text search.")
-    result = {"query": request.query, "count": 0, "listings": []}
-    if request.location is not None:
-        postcode = soup.select_one('input[name="hlokalita"]')
-        radius = soup.select_one('input[name="humkreis"]')
-        expected_radius = str(request.radius_km if request.radius_km is not None else 25)
-        if (
-            postcode is None
-            or str(postcode.get("value", "")).replace(" ", "") != request.location
-            or radius is None
-            or radius.get("value") != expected_radius
-        ):
-            raise SourceUnavailable("Bazos did not confirm the requested postcode/radius filter.")
-        result["warning"] = (
-            f"Requested the source's {expected_radius} km postcode filter. "
-            "Exact distances cannot be verified from listing locations."
-        )
-    selected = filter_and_sort(listings, request)
-    result.update(count=len(selected), listings=[listing.model_dump() for listing in selected])
-    return result
+    listings, pages, offset, has_more, warning = [], 0, 0, False, None
+    for _ in range(request.max_pages):
+        try:
+            response = await client.get(
+                build_search_url(request, offset=offset), follow_redirects=False
+            )
+            response.raise_for_status()
+            if "text/html" not in response.headers.get("content-type", ""):
+                raise SourceUnavailable("Bazos did not return an HTML search page.")
+            batch = parse_listings(response.text, str(response.url))
+            soup = BeautifulSoup(response.text, "html.parser")
+            query = soup.select_one('input[name="hledat"]')
+            if batch and (query is None or str(query.get("value", "")).strip() != request.query):
+                raise SourceUnavailable("Bazos did not confirm the requested text search.")
+            if request.location is not None:
+                postcode = soup.select_one('input[name="hlokalita"]')
+                radius = soup.select_one('input[name="humkreis"]')
+                expected = str(request.radius_km if request.radius_km is not None else 25)
+                if (
+                    postcode is None
+                    or str(postcode.get("value", "")).replace(" ", "") != request.location
+                    or radius is None
+                    or radius.get("value") != expected
+                ):
+                    raise SourceUnavailable(
+                        "Bazos did not confirm the requested postcode/radius filter."
+                    )
+                warning = (
+                    f"Requested the source's {expected} km postcode filter. "
+                    "Exact distances cannot be verified from listing locations."
+                )
+        except (SourceUnavailable, httpx.HTTPError) as exc:
+            if not pages:
+                raise
+            warning = (
+                f"{warning or ''} Further Bazos page failed "
+                f"({type(exc).__name__}); partial results."
+            )
+            break
+        listings.extend(batch)
+        pages += 1
+        offsets = []
+        for link in soup.find_all("a", href=True):
+            target = urlsplit(urljoin(str(response.url), link["href"]))
+            params = parse_qs(target.query)
+            value = params.get("crz", [""])[0]
+            if (
+                target.netloc == urlsplit(BASE_URL).netloc
+                and target.path == "/search.php"
+                and params.get("hledat") == [request.query]
+                and value.isdigit()
+                and int(value) > offset
+            ):
+                offsets.append(int(value))
+        has_more = bool(offsets) and bool(batch)
+        if not has_more:
+            break
+        offset = min(offsets)
+    return search_result(request, listings, pages, has_more, warning)
 
 
 async def search_listings(request: SearchRequest, client: httpx.AsyncClient | None = None) -> dict:

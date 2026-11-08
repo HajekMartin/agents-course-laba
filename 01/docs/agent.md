@@ -66,7 +66,9 @@ the user changes that choice. A failed Bazoš-only request cannot execute Sbazar
 The system prompt contains the marketplace instructions only, without the framework's
 generic text-action examples or duplicate tool schemas. Native calls use API tool definitions
 and no text ReAct stop markers. Each source is offered once per turn; its warning/error is
-terminal for that attempt. The first valid search fixes the query and filters across all
+terminal for that attempt. Its MCP call automatically scans up to `max_pages` native pages
+(default 3, maximum 5), stopping at the source's end. This keeps the LLM loop small.
+The first valid search fixes the query and filters across all
 later steps, including source failures. New user turns can change those parameters.
 When all selected source attempts finish, lookup/search tools are withdrawn and the API
 explicitly selects the native `final_answer` function. The LLM still generates its answer.
@@ -82,7 +84,18 @@ require clarification. Search snippets are not official address validation. The 
 includes the chosen code and source link. Web text is untrusted data, never instructions.
 Up to 32 resolved codes are retained in the local session; **New chat** clears them.
 The helper accesses Internet search directly, adds no MCP server and needs no API key.
-The existing marketplace MCP schemas and unverified-distance warnings remain unchanged.
+Existing search parameters and unverified-distance warnings are preserved.
+
+Source tools add only the related `max_pages` parameter. Before applying sort/limit,
+`providers/matching.py` rejects obvious accessories, component listings and wanted/trade ads
+unless those are requested, and checks numbered model terms in titles. It does not infer a
+minimum price, use descriptions as instructions or implement AI ranking. Phone bundles and
+clearly damaged whole phones are retained. Ambiguous or abbreviated titles can still be
+misclassified. The model can additionally exclude retrieved URLs in its final answer.
+Pagination uses Bazoš's actual next-link `crz` offsets and Sbazar's `offset`/`pagination.total`.
+Page budgets and later-page failures preserve results already retrieved and disclose partial
+coverage. The final response includes pages inspected and obvious ads filtered; no exhaustive
+marketplace or global cheapest-price claim is made.
 
 The built-in `final_answer` tool accepts a brief model summary and optionally original
 URLs of irrelevant retrieved ads. It never performs marketplace I/O. Python excludes those
@@ -117,6 +130,10 @@ preserving price constraints and adding a postcode/radius. This verifies that pa
 loaded model and chat template, not every Unsloth model. Public user-requested searches
 are enabled by default; source-disable flags and actual HTTP failures are reported.
 Both providers have returned live listings during direct verification of the Turnov search.
+The updated native cycle was also verified for iPhone 17, postcode 51101, 30 km and
+CZK 17,000: both MCP sources were searched, 19 obvious irrelevant ads were filtered and
+three phone listings remained, without inventing a lower price bound. This is a live
+snapshot, not a guarantee of future availability or exact geographic distances.
 Rerun the optional live test after changing the model;
 a basic HTTP completion or mock test alone is insufficient.
 

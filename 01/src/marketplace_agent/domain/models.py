@@ -20,6 +20,7 @@ class SearchRequest(BaseModel):
     radius_km: int | None = Field(default=None, ge=0, le=1000)
     sort_by: SortOrder = "relevance"
     limit: int = Field(default=10, ge=1, le=50)
+    max_pages: int = Field(default=3, ge=1, le=5)
 
     @field_validator("location")
     @classmethod

@@ -163,6 +163,7 @@ def test_aliases_preserve_actual_mcp_identity(registry):
         '{"query":""}',
         '{"query":"test","limit":true}',
         '{"query":"test","limit":51}',
+        '{"query":"test","max_pages":6}',
         '{"query":"test","min_price":-1}',
         '{"query":"test","max_price":"12000"}',
         '{"query":"test","radius_km":30}',
@@ -289,6 +290,27 @@ def test_mcp_execution_uses_the_discovered_identity(registry):
     result = asyncio.run(execute_tool(client, tool, request, args, 2))
     assert result["count"] == 1
     client.call_tool.assert_awaited_once_with(tool.mcp_name, args, timeout=2, raise_on_error=False)
+
+
+def test_mcp_coverage_counts_are_returned_to_the_model(registry):
+    tool, request, args = registry.validate("bazos_search_listings", '{"query":"iPhone 15"}')
+    data = payload(listing()) | {
+        "pages_scanned": 2,
+        "scanned_count": 80,
+        "filtered_count": 60,
+        "has_more": True,
+    }
+    client = SimpleNamespace(
+        call_tool=AsyncMock(
+            return_value=SimpleNamespace(
+                is_error=False,
+                structured_content=data,
+            )
+        )
+    )
+    result = asyncio.run(execute_tool(client, tool, request, args, 2))
+    assert result["pages_scanned"] == 2 and result["filtered_count"] == 60
+    assert result["has_more"] is True
 
 
 @pytest.mark.parametrize("error", [TimeoutError(), OSError("private body")])

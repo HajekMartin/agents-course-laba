@@ -7,6 +7,7 @@ port 8002. It uses the same `SearchRequest` and `Listing` contract as Bazoš.
 
 Inputs are `query`, `min_price`, `max_price`, `location` (Czech postcode), `radius_km`,
 `sort_by` (`relevance`, `price_asc`, `price_desc`) and `limit` (1–50, default 10).
+`max_pages` controls bounded browsing (1–5, default 3).
 Prices are inclusive nonnegative integer CZK bounds. Radius requires a postcode and
 accepts 0–1000; when omitted with a postcode, 25 km is requested consistently with Bazoš.
 The response contains `query`, `count`, `listings`, and optionally `warning`.
@@ -42,8 +43,11 @@ its name is retained for compatibility. robots.txt is not an application access 
 Actual HTTP 403/429, redirects, timeouts, CAPTCHA responses, invalid JSON or unknown payloads
 return a warning. There are no authentication workarounds, retries or CAPTCHA bypasses.
 
-One page of up to 60 summaries is fetched. Existing shared code filters prices, sorts that
-page and applies the requested limit. Relevance preserves source order. There is no global
+Up to `max_pages` pages of 60 source summaries are inspected using native `offset` and
+`pagination.total`, stopping at the source end. Shared title checks remove obvious
+accessories/trades and mismatched numbered models before sorting/limit; no price floor is
+invented. Explicit accessory searches remain supported. Later-page errors preserve prior
+results and report incomplete coverage. Relevance preserves source order. There is no global
 cheapest-price or exhaustive-search guarantee.
 
 ## Running and testing
@@ -69,4 +73,5 @@ The original [reference source](https://github.com/basta/sbazar-mcp/blob/main/sr
 informed the JSON normalization. Its MIT attribution is preserved in
 [the upstream license notice](licenses/sbazar-mcp-MIT.txt). Native geography now uses the
 verified frontend contract rather than the reference's local city-name substring filter.
-No MCP tool, parameter, container, database or geocoding service was added.
+The related `max_pages` input extends the shared search contract. No new MCP tool,
+container, database or geocoding service was added.

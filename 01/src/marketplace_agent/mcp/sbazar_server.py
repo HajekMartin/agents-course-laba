@@ -17,10 +17,12 @@ async def search_listings(
     radius_km: int | None = None,
     sort_by: SortOrder = "relevance",
     limit: int = 10,
+    max_pages: int = 3,
 ) -> dict:
     """Search Sbazar listing summaries; inclusive prices in CZK, limit 1..50.
 
-    Relevance preserves source order; prices are sorted within one fetched result page.
+    Scans up to max_pages (1..5, default 3); filters obvious accessories/trades before
+    price sorting and limit. Searches for accessories remain supported. No price floor is inferred.
     Location accepts Czech postcodes (46001); the source resolves them to its first
     municipal suggestion. Uses native radius filtering, default 25 km with location.
     Exact listing distances are unverified; postal areas can cover multiple places.
@@ -35,6 +37,7 @@ async def search_listings(
         radius_km=radius_km,
         sort_by=sort_by,
         limit=limit,
+        max_pages=max_pages,
     )
     return await sbazar.search_listings(request)
 

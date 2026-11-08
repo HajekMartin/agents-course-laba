@@ -75,6 +75,9 @@ def test_filter_parameters(radius: int | None, expected: str) -> None:
         {"limit": 0},
         {"limit": 51},
         {"limit": "5"},
+        {"max_pages": 0},
+        {"max_pages": 6},
+        {"max_pages": True},
         {"radius_km": 1},
         {"location": "Liberec"},
         {"location": ""},
@@ -157,6 +160,10 @@ def test_empty_and_invalid_html(permitted: None) -> None:
         "query": "test product",
         "count": 0,
         "listings": [],
+        "pages_scanned": 1,
+        "has_more": False,
+        "scanned_count": 0,
+        "filtered_count": 0,
     }
     for html in ("", "<html><p>CAPTCHA</p></html>", "not HTML", "<h2>Maintenance</h2>"):
         result = search(html=html)
@@ -256,6 +263,7 @@ def test_mcp_tool_registration_invocation_and_validation(
                 "radius_km",
                 "sort_by",
                 "limit",
+                "max_pages",
             }
             result = await client.call_tool(
                 "search_listings",
@@ -345,5 +353,8 @@ def test_streamable_http_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
 )
 def test_optional_live_smoke() -> None:
     result = asyncio.run(bazos.search_listings(SearchRequest(query="kolo", limit=1)))
-    assert "warning" not in result, result
-    assert result["count"] == len(result["listings"]) <= 1
+    assert result["count"] == len(result["listings"]) == 1, result
+    assert 1 <= result["pages_scanned"] <= 3
+    assert result["listings"][0]["url"].startswith("https://")
+    if result["has_more"]:
+        assert "further source results were not fetched" in result["warning"]

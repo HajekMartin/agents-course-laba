@@ -7,6 +7,7 @@ port 8001. It searches public listing summaries across all categories.
 
 Inputs are `query`, `min_price`, `max_price`, `location` (Czech postcode), `radius_km`,
 `sort_by` (`relevance`, `price_asc`, `price_desc`) and `limit` (1–50, default 10).
+`max_pages` controls bounded browsing (1–5, default 3).
 Query length is 1–256 characters. Price bounds are inclusive nonnegative integer CZK
 amounts. Postcodes are normalized to five digits. Radius is 0–1000 and requires a postcode;
 location alone uses the source's default 25 km. Invalid inputs fail before HTTP.
@@ -35,8 +36,11 @@ see [RFC 9309](https://www.rfc-editor.org/rfc/rfc9309.html). This is a bounded s
 client, not an indexing crawler. Actual HTTP errors, redirects, rate limits and access
 challenges are reported without bypasses or retries.
 
-Only one result page is fetched. The existing shared helper filters/sorts that page and
-applies the requested limit. Relevance preserves source order, which can include promoted
+Actual next-link `crz` offsets are followed, preserving all search filters, up to the page
+budget or source end. The shared helper removes obvious accessories/trades and mismatched
+numbered models before sorting and applying the final limit; it never guesses a price floor.
+Pages inspected, rejected ads and remaining coverage are reported. Later-page failures
+retain earlier results with a warning. Relevance preserves source order, including promoted
 items. There is no claim of global completeness or globally cheapest listings.
 
 ## Running and testing

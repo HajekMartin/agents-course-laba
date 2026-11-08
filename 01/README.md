@@ -80,7 +80,13 @@ An empty tool response with an error warning is incomplete, not proof of no matc
 See [Bazoš MCP](docs/bazos-mcp.md) and [Sbazar MCP](docs/sbazar-mcp.md).
 
 `AGENT_MAX_ITERATIONS` defaults to **20**. Each selected marketplace is called at most once
-per user turn, with identical search parameters across steps. Warnings/errors finish that
+per user turn; one MCP call scans up to **3 native pages** by default (`max_pages`, range 1–5).
+Obvious accessories, spare parts, wanted/trade ads and nonmatching numbered models are
+filtered **before** price sorting and the final result limit. No minimum price is guessed.
+Whole-product bundles and clearly damaged whole phones remain eligible; explicit accessory
+searches still work. This is a small title heuristic, not complete semantic classification.
+The response reports pages inspected, rejected items and whether more pages remain.
+Search parameters remain identical across steps. Warnings/errors finish that
 source's attempt; the agent preserves the requested location, radius and price filters.
 After all selected sources respond, only native `final_answer` remains available.
 
