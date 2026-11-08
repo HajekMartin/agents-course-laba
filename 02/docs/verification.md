@@ -1,5 +1,85 @@
 # Verification
 
+## PDF output limit raised to 32000 — 2026-11-08
+
+At the user's request, PDF Local Model maxTokens was increased from 12000 to
+32000. The workflow was validated, published, and exported. The request timeout
+remains 1500 seconds and the workflow timeout remains 3600 seconds. The published
+node and exported JSON were read back to verify the requested limit. No
+32000-token generation test was run for this configuration-only change.
+
+## Extended PDF output length — 2026-11-08
+
+PDF Local Model maxTokens was raised from 6000 to 12000 and the workflow was
+published. The installed LangChain OpenAI SDK was checked without making a network
+request: for the configured Unsloth Qwen model it serializes `max_tokens: 12000`
+and `stream: false`. This is the existing compatible request format, so no extra
+conflicting max_completion_tokens field was added. The native Information Extractor
+invokes the model and parses a complete JSON object; it does not expose incremental
+streaming to the upload browser. A stream override was not inserted into extraBody.
+Timeouts remain 1500 seconds per model request and 3600 seconds per import. The
+published configuration and actual exported JSON were checked; no 12000-token
+long-generation test was performed for this configuration change.
+
+## Extended PDF timeout — 2026-11-08
+
+At the user's request, PDF Local Model timeout was raised from 300000 ms to
+1500000 ms (300 to 1500 seconds, fivefold). The overall import execution timeout
+was raised from 600 to 3600 seconds to accommodate a second structured-output repair
+request and the remaining import nodes. The installed model node applies this
+request timeout to both HTTP headers and body waiting. The browser form uses fetch
+without its own five-minute abort. The updated workflow was published and exported;
+configuration was validated and read back. No 25-minute delayed execution was run
+for this configuration-only change. Existing running executions retain their snapshot.
+
+## PDF import and continuous production uploads — 2026-11-08
+
+The published import workflow now has 23 native n8n nodes. It accepts CSV, XLSX
+and text PDF files through the same anonymous `/form/finance-import` production
+URL. Repeated GET/POST uploads work without executing the editor. The corresponding
+`/form-test/finance-import` URL returns the expected not-listening page outside a
+manual test; this test URL is not the permanent upload endpoint. Every result page
+now has a **Nahrát další výpis** link back to the production form.
+
+Native Extract From File 1.2 reads PDF text, and Information Extractor 1.2 uses the
+existing local Unsloth model/credential to recognize rows without a bank template.
+Date, amount, copied fields and source excerpts are verified before SQL import.
+Unverified rows retain their position and produce a controlled database error.
+Opening/closing balances are excluded. Own-account transfers are distinguished
+from ordinary outgoing bank transfers. Known successful file hashes bypass parsing.
+
+Actual synthetic PDF test (`examples/bank-statement.pdf`): four rows recognized,
+**one inserted / three duplicates / zero invalid**. Independent SQL confirms the
+new `DEMO-PDF-001` transaction: 2026-11-07, **-75.00 CZK**, Lidl, expense, description
+`Synthetic PDF purchase`. Re-upload skips all four rows and inserts zero.
+The empty-text PDF is rejected with an explicit OCR/readable-text message; malformed
+PDF and unsupported extensions also return safe result pages with another-upload
+links. No waiting execution or manual editor run was needed.
+
+The fixture set now contains **44 transactions** after CSV/XLSX/PDF imports. The
+October oracle below is unchanged. The three-month September–November net spending
+is now **62171.25 CZK**, net balance **72828.75 CZK**, average spending **20723.75 CZK**.
+All four actual exported SQL tools passed under finance_reader with these amounts.
+An anonymous live chat correctly included the new PDF row: Lidl on 2026-11-07 is
+**175 CZK**, from the existing 100 CZK transaction plus the new 75 CZK transaction;
+the agent selected search_transactions and returned the SQL-calculated total.
+
+`tests/pdf-evidence.mjs` executes the actual exported Code node and rejects invented
+amounts, dates, merchants, excerpts, ambiguous transfer labels and failed extraction.
+The database rollback tests also verify the controlled PDF source-validation error.
+`tests/imports.mjs` follows the result-page link after each actual upload and checks
+that the production form still returns HTTP 200. The synthetic PDFs can be recreated
+with `node config/create-pdf-examples.mjs` without installing any package.
+The final PDF-enabled export and agent export were also imported successfully
+into a fresh n8n 2.46.6 CLI database in a disposable container with no network
+or original data volumes; both expected workflow names/IDs were listed.
+
+PDF recognition is approximate and can omit rows; the result always states this.
+There is no OCR. Password-protected/scanned PDFs are unsupported. PDF limits are
+2 MiB, 20 pages, 30000 text characters and 100 recognized transactions. Original PDF
+text and source excerpts are transient local inference data and are not stored in
+finance tables. Existing execution-retention settings remain in force.
+
 ## Anonymous local demo access — 2026-11-08
 
 At the user's request, both published form/chat triggers now use Authentication =

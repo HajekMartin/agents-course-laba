@@ -6,10 +6,13 @@ infrastructure. Assignment 01 is independent and its files are unchanged.
 ```mermaid
 flowchart LR
   Browser[Anonymous local demo browser] --> Import[Finance - Import Bank Statement]
-  Import --> Extract[Native CSV/XLSX extraction]
-  Extract --> Writer[Parameterized import function]
+  Import --> Extract[Native CSV/XLSX/PDF extraction]
+  Extract -->|CSV/XLSX rows| Writer[Parameterized import function]
+  Extract -->|PDF text| PDF[Local PDF Information Extractor and source verification]
+  PDF --> Writer
   Writer --> Finance[(finance schema)]
-  Writer --> Summary[Direct response without waiting execution]
+  Writer --> Summary[Direct response and another-upload link]
+  Summary --> Import
   Browser --> Chat[Finance - AI Assistant]
   Chat <--> Agent[n8n AI Agent]
   Agent <--> Model[Local Unsloth custom OpenAI endpoint]
@@ -51,3 +54,9 @@ Docker socket, external runner, vector database or application service is added.
 For production isolation, an external task runner would require a separate deliberate
 architecture change outside this assignment. Backups must protect the finance and
 n8n volumes plus the matching encryption key; storage is not application-level encrypted.
+
+Text PDFs use the same local Unsloth credential as chat, through a native Information
+Extractor. No OCR or external provider is used. A repeated file hash bypasses
+extraction. Dates/amounts and literal row fields are checked against PDF text before
+SQL insertion. The result page links to the permanently published `/form/finance-import`
+URL; `/form-test/` is only an editor test listener.

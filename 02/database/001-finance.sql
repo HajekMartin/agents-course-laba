@@ -127,6 +127,7 @@ BEGIN
  FOR r IN SELECT value FROM jsonb_array_elements(p_rows) LOOP
    n:=n+1; row_error:=NULL;
    BEGIN
+     IF r ? '_pdf_validation_error' THEN RAISE EXCEPTION 'PDF transaction could not be verified against source text'; END IF;
      IF NOT (r ?& required) THEN RAISE EXCEPTION 'Missing required columns'; END IF;
      BEGIN a:=parse_amount(r->>'amount'); EXCEPTION WHEN OTHERS THEN RAISE EXCEPTION 'Invalid amount'; END;
      IF a=0 THEN RAISE EXCEPTION 'Zero amount is not supported'; END IF;
@@ -168,6 +169,7 @@ BEGIN
      row_error:=CASE WHEN SQLERRM IN ('Invalid amount','Zero amount is not supported','Invalid transaction date',
        'Unsupported currency','Empty description or text exceeds length limit',
        'Invalid transaction_type or incompatible amount sign','Missing required columns',
+       'PDF transaction could not be verified against source text',
        'Conflicting transaction identifier: existing transaction was preserved') THEN SQLERRM ELSE 'Row failed database validation' END;
      IF jsonb_array_length(errs)<100 THEN errs:=errs||jsonb_build_object('row',n+1,'message',row_error); END IF;
    END;

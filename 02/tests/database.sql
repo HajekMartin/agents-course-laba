@@ -18,6 +18,9 @@ BEGIN
  ASSERT has_table_privilege('finance_reader','finance.ledger','SELECT');
  ASSERT NOT has_function_privilege('finance_reader','finance.import_statement(text,text,jsonb)','EXECUTE');
  ASSERT NOT has_schema_privilege('finance_reader','finance','CREATE');
+ s:=import_statement('unverified-pdf-test.pdf',repeat('d',64),'[{"date":"","amount":"","currency":"","description":"","merchant":"","transaction_id":"","_pdf_validation_error":true}]');
+ ASSERT s->>'status'='rejected' AND (s->>'invalid_rows')::int=1;
+ ASSERT s->'errors'->0->>'message'='PDF transaction could not be verified against source text';
  rows:='[{"date":"2026-01-01","amount":"-1.10","currency":"CZK","description":"Synthetic collision test","merchant":"Lidl","transaction_id":""},
          {"date":"2026-01-01","amount":"-1.10","currency":"CZK","description":"Synthetic collision test","merchant":"Lidl","transaction_id":""}]';
  s:=import_statement('synthetic-test.csv',repeat('e',64),rows);

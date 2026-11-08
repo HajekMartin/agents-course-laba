@@ -1,0 +1,20 @@
+// Exercise the actual exported PDF source-verification Code node.
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+const raw=JSON.parse(readFileSync(new URL('../workflows/finance-import.json',import.meta.url),'utf8'));
+const wf=Array.isArray(raw)?raw[0]:raw;
+const quote='Booking date: 07.11.2026 Amount: -75.00 CZK Description: Synthetic PDF purchase Merchant: Lidl Transaction ID: DEMO-PDF-001 Transaction type: expense';
+const source='Currency: CZK '+quote;
+const lookup=name=>({first:()=>({json:name==='Check PDF Text'?{text:source}:{file_name:'synthetic.pdf'}})});
+const execute=new Function('$json','$',wf.nodes.find(n=>n.name==='Verify PDF Transactions').parameters.jsCode);
+const row={date:'2026-11-07',amount:'-75.00',currency:'CZK',description:'Synthetic PDF purchase',merchant:'Lidl',transaction_id:'DEMO-PDF-001',transaction_type:'expense',source_excerpt:quote};
+const verify=record=>execute({output:{transactions:[record],complete:true}},lookup)[0].json.pdf_rows[0];
+assert.equal(verify(row).amount,'-75.00');
+assert.equal(verify({...row,amount:'-99999.00'})._pdf_validation_error,true);
+assert.equal(verify({...row,date:'2026-11-08'})._pdf_validation_error,true);
+assert.equal(verify({...row,merchant:'Invented merchant'})._pdf_validation_error,true);
+assert.equal(verify({...row,source_excerpt:'Invented source text'})._pdf_validation_error,true);
+assert.equal(verify({...row,transaction_type:'transfer'})._pdf_validation_error,true);
+assert.equal(execute({error:'parse failure'},lookup)[0].json.summary.status,'rejected');
+assert.equal(execute({output:{transactions:[],complete:false}},lookup)[0].json.summary.status,'rejected');
+console.log('PASS: actual PDF evidence node preserves source values and rejects fabricated amounts, dates, merchants, excerpts and failed extraction.');

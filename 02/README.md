@@ -25,7 +25,7 @@ Selected platform: **n8n**.
 
 ## Purpose and stack
 
-Upload synthetic or private canonical bank statements, categorize transactions,
+Upload CSV/XLSX statements or text PDFs, categorize recognized transactions,
 and ask Czech financial questions calculated from stored transactions.
 
 | Component | Actual version / location | Responsibility |
@@ -36,7 +36,7 @@ and ask Czech financial questions calculated from stored transactions.
 | Codex + built-in n8n MCP | Existing OAuth connection | Development, schema discovery, validation and workflow changes |
 
 The model selection was obtained from the configured endpoint's `/models` list;
-it is configurable in the **Local Unsloth Model** node. The current local model is
+it is configurable in the **Local Unsloth Model** and **PDF Local Model** nodes. The current local model is
 `unsloth/Qwen3.5-9B-GGUF`. Its name is configuration, not an assumed cloud default.
 
 ## Architecture
@@ -45,10 +45,14 @@ it is configurable in the **Local Unsloth Model** node. The current local model 
 flowchart LR
   Browser[Anonymous local demo browser] --> Form[n8n Form Trigger]
   Form --> Validate[Validate upload and SHA256]
-  Validate --> Extract[Extract From File: CSV or XLSX]
-  Extract --> Import[Parameterized Postgres import]
+  Validate --> Cached[Skip previously imported files]
+  Cached --> Extract[Extract From File: CSV, XLSX or PDF]
+  Extract -->|CSV/XLSX rows| Import[Parameterized Postgres import]
+  Extract -->|PDF text| PDF[Local structured PDF extraction and source checks]
+  PDF --> Import
   Import --> DB[(finance database)]
-  Import --> Summary[Direct import summary]
+  Import --> Summary[Import summary and upload-another link]
+  Summary --> Form
   Browser --> Chat[n8n Chat Trigger]
   Chat --> Agent[n8n AI Agent]
   Agent <--> Model[Local Unsloth on host]
@@ -171,22 +175,34 @@ uploads idempotent, including CSV/XLSX overlap via their bank IDs.
 Open **http://localhost:5678/form/finance-import**. This local demo form is anonymous
 and requires no username or password. Choose one file and submit. A direct response
 displays file name, processed/imported/duplicate/invalid counts, status and safe errors.
-The editor's Form Trigger also exposes the URL.
+The result includes **Nahrát další výpis**, which returns to the same permanent
+form for another upload. There is no need to run the workflow in the editor.
 
-Canonical header (all six columns required, values for the last two may be empty):
+Use the **Production URL** above, beginning with `/form/`. The `/form-test/` URL is
+only for an editor test run and stops listening when that test ends. The workflow
+must be published once; this instance is already published. Production executions
+do not animate the editor canvas. See the [n8n Form Trigger documentation](https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.formtrigger/).
+
+Canonical CSV/XLSX header (all six columns required; the last two may be empty):
 
 ```text
 date,amount,currency,description,merchant,transaction_id
 ```
 
 An optional seventh column, `transaction_type`, accepts `expense`, `income`,
-`refund` or `transfer`. No automatic bank-specific column mapping is attempted.
+`refund` or `transfer`. No automatic bank-specific CSV/XLSX column mapping is attempted.
 
 - CSV: UTF-8, optional BOM, comma delimiter, header row; quote decimal-comma amounts
   and any fields containing commas. Malformed CSV is not silently skipped.
 - XLSX: sheet named `Transactions`, header row, dates stored as ISO text. Numeric
   amounts and textual Czech amounts work. Excel date serials and arbitrary bank
   layouts are deliberately unsupported.
+- PDF: selectable text, with no bank-specific template required. Native Extract From
+  File reads the text; one local Unsloth Information Extractor call identifies
+  transactions. Dates, signed amounts and copied text are checked against a verbatim
+  source excerpt before the existing SQL validation/import. Opening/closing balances
+  and totals are excluded. Unsupported rows are reported, not silently accepted.
+  Recognition can be incomplete: compare the result with the original statement.
 - Dates: strict `YYYY-MM-DD` or `DD.MM.YYYY`, real calendar dates, 1900–2100. Stored
   as `DATE`; no UTC conversion is applied to a booking date. Execution timezone is
   `Europe/Prague`; audit timestamps are `TIMESTAMPTZ`.
@@ -197,7 +213,17 @@ An optional seventh column, `transaction_type`, accepts `expense`, `income`,
 - Text is trimmed with whitespace collapsed. Merchant identity is never invented;
   an empty or unknown merchant defaults to `Other`.
 - Limits: one file, 2 MiB upload, 10 MiB declared expanded XLSX content, 5000 rows.
-  Oversized or unsupported input is rejected. No PDF, OCR or bank API access.
+  PDFs additionally allow at most 20 pages, 30000 text characters and 100 recognized
+  transactions. Oversized, encrypted, image-only or unrecognized PDFs produce a
+  clear error. No OCR or bank API access is implemented. Local PDF parsing can take
+  longer than CSV/XLSX; known file hashes skip extraction on repeated uploads.
+  PDF extraction permits **32000 output tokens**. The installed Qwen integration
+  serializes this native n8n `maxTokens` setting as `max_tokens: 32000`. The
+  Information Extractor consumes a complete JSON response; streaming is disabled.
+  The PDF model request timeout is **1500 seconds (25 minutes)**; the entire import
+  workflow allows **3600 seconds (60 minutes)** so a structured-output repair can
+  make a second model request without hitting the former 10-minute workflow limit.
+  These limits apply to newly started uploads.
 
 Rules in `finance.categorization_rules` map Lidl/Albert/Kaufland to Groceries,
 Netflix/Spotify to Subscriptions, Shell/OMV/DPP to Transport, Alza to Shopping,
@@ -208,7 +234,10 @@ respond through Respond to Webhook. Newer Form completion nodes persist a waitin
 execution until the browser resumes it; avoiding that prevents abandoned completion
 pages retaining raw statements. This type-version change used documented CLI
 export/import because MCP cannot edit a node's type version. The final graph and
-actual HTTP uploads were verified again after import.
+actual HTTP uploads were verified again after import. The direct result is HTML
+with summary counts and a link to start another upload; it creates no waiting form
+execution. PDF rows that fail source verification use a controlled database error
+and retain their invalid-row count in the import record.
 
 ## AI Agent and Unsloth
 
@@ -314,17 +343,18 @@ version 2.46.6), create/reassign these credentials independently:
 | Finance - Read Only Database | Postgres | Same server/database, `finance_reader`, FINANCE_READER_PASSWORD |
 | Finance - Local Unsloth | OpenAI | Custom local Base URL, local API key; choose exact installed model ID in model node |
 
-Attach Import Database only to the import Postgres node; attach Read Only Database
-to all four agent tools. Both demo triggers use Authentication = None. Exports omit secret
-values and pin data and import as inactive. Review local endpoint/model and paths,
+Attach Import Database to both import PostgreSQL nodes; attach Read Only Database
+to all four agent tools. Assign Local Unsloth to the chat model and the PDF model. Both demo triggers use
+Authentication = None. Exports omit secret values and pin data and import as inactive. Review local endpoint/model and paths,
 then publish. Workflow IDs/webhook IDs can change on a new instance; use the URLs
 shown by the imported triggers. There are no external subworkflow ID dependencies.
 
 ## Testing and results
 
 Synthetic fixtures are in `examples/`: canonical CSV (43 rows, 42 unique), XLSX
-(the same rows plus one new transaction), invalid amount/date CSV, and missing-column
-CSV. They cover September–November 2026, income, refunds, transfers, eleven category
+(the same rows plus one new transaction), a bank-style PDF (three overlapping
+transactions and one new November payment), an empty-text PDF, invalid amount/date
+CSV, and missing-column CSV. They cover September–November 2026, income, refunds, transfers, eleven category
 seeds and distinct bank IDs for two otherwise identical purchases. No real bank data.
 
 ```bash
@@ -332,6 +362,7 @@ seeds and distinct bank IDs for two otherwise identical purchases. No real bank 
 node tests/imports.mjs
 node tests/tools.mjs
 node tests/evidence.mjs
+node tests/pdf-evidence.mjs
 docker compose exec -T postgres sh -c \
   'psql -U "$FINANCE_DB_USER" -d "$FINANCE_DB_NAME" -v ON_ERROR_STOP=1' < tests/database.sql
 ```
@@ -347,7 +378,9 @@ Recorded synthetic evidence is in `tests/acceptance-results.json` and the final
 verification record is [docs/verification.md](docs/verification.md).
 
 First-run imports: CSV **42 inserted / 1 duplicate**; XLSX **1 inserted / 43 duplicates**.
-Repeated imports insert zero. The final demo database contains **43 transactions**.
+PDF **1 inserted / 3 duplicates**. Repeated imports insert zero. The final demo
+database contains **44 transactions** after all three supported formats. Regenerate
+the synthetic PDFs with `node config/create-pdf-examples.mjs` if needed.
 Invalid amounts, impossible dates and missing columns are explicitly reported.
 Constraint, NUMERIC, FK, reader privilege, normalization and fallback-dedup tests
 pass inside a rollback transaction.
@@ -361,13 +394,17 @@ income **45,000.00 CZK**, net balance **20,481.25 CZK**. Transfers are excluded.
 ## Limitations and assignment compliance
 
 This is a local single-user teaching application. It supports one logical account
-per currency, a strict canonical format, explicit transfer/refund labels, and no
+per currency, canonical CSV/XLSX and heuristic text-PDF extraction, explicit
+transfer/refund labels, and no
 FX conversion. It cannot certify statement completeness. Refunds are recognized
 in their booking month; cross-month matching to purchases is not attempted.
 Missing bank IDs have the documented fingerprint ambiguity. Search returns at most
 50 detailed rows, monthly output at most 120 months. The evidence guard cannot
 prove every semantic claim in free text; inspect results for consequential decisions.
-No forecasting, investment/tax advice, PDF/OCR, vector database or bank API is included.
+PDF recognition is bank-agnostic and approximate, not a guaranteed parser for every
+bank layout. Source checks cannot prove that every original row was recognized.
+Scanned/image-only and password-protected PDFs are unsupported. No forecasting,
+investment/tax advice, OCR, vector database or bank API is included.
 
 The deliverable demonstrates the assigned no-code platform, a genuine AI Agent,
 local LLM, database access, actual tool execution, Czech natural-language answers,

@@ -12,11 +12,16 @@ export async function upload(name,bytes) {
   const formPage=await fetch(url,{headers});assert.equal(formPage.status,200);
   const token=(await formPage.text()).match(/const authToken = '([^']*)'/)?.[1];
   const body=new FormData();body.append('field-0',new Blob([bytes]),name);
-  const r=await fetch(url,{method:'POST',headers:{...headers,...(token?{'x-auth-token':token}:{})},body,signal:AbortSignal.timeout(120000)});
+  const r=await fetch(url,{method:'POST',headers:{...headers,...(token?{'x-auth-token':token}:{})},body,signal:AbortSignal.timeout(600000)});
   assert.equal(r.status,200);
-  const payload=await r.json();
-  assert.ok(payload.formSubmittedText,'Expected direct summary without a waiting execution');
-  return JSON.parse(payload.formSubmittedText);
+  const html=await r.text();
+  const summary=html.match(/<pre id="import-summary">([\s\S]*?)<\/pre>/)?.[1];
+  assert.ok(summary,'Expected a direct result page without a waiting execution');
+  const next=html.match(/id="upload-another" href="([^"]+)"/)?.[1];
+  assert.equal(next,'/form/finance-import','Result must link back to the permanent production form');
+  assert.equal((await fetch(new URL(next,url))).status,200,'Another upload must work without running the editor');
+  const decode=s=>s.replace(/&quot;/g,'"').replace(/&#39;/g,"'").replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&amp;/g,'&');
+  return JSON.parse(decode(summary));
 }
 for (const name of ['canonical-statement.csv','canonical-statement.csv','canonical-statement.xlsx','canonical-statement.xlsx','invalid-rows.csv','missing-columns.csv']) {
   const s=await upload(name,readFileSync(new URL('examples/'+name,root)));
@@ -33,4 +38,14 @@ for (const name of ['canonical-statement.csv','canonical-statement.csv','canonic
 }
 const unsupported=await upload('unsupported.pdf',Buffer.from('synthetic unsupported file'));
 assert.equal(unsupported.status,'rejected');
-console.log('PASS: anonymous CSV/XLSX uploads, repeats, invalid amounts/dates, missing columns and unsupported extension.');
+assert.equal((await upload('unsupported.txt',Buffer.from('synthetic unsupported file'))).status,'rejected');
+for(const name of ['bank-statement.pdf','bank-statement.pdf']){
+ const s=await upload(name,readFileSync(new URL('examples/'+name,root)));
+ console.log(JSON.stringify({test:name,...s}));
+ assert.ok(['completed','partial','duplicate_file'].includes(s.status));
+ assert.equal(s.processed_rows,4);assert.equal(s.invalid_rows,0);
+ assert.equal(s.imported_transactions+s.skipped_duplicates,4);
+}
+const empty=await upload('no-text.pdf',readFileSync(new URL('examples/no-text.pdf',root)));
+assert.equal(empty.status,'rejected');assert.match(empty.errors[0].message,/OCR|readable text/);
+console.log('PASS: anonymous CSV/XLSX/PDF uploads, repeats, source checks, empty-text PDFs, validation errors and continuous production uploads.');

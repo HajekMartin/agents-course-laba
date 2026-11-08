@@ -9,7 +9,7 @@ const wf=Array.isArray(raw)?raw[0]:raw;
 const cases=[
  ['get_spending_summary',['2026-10-01','2026-11-01','CZK'],r=>{assert.equal(r.total_spending,'24518.75');assert.equal(r.food_spending,'3730.75');assert.equal(r.transaction_count,15)}],
  ['search_transactions',['2026-10-01','2026-11-01','CZK','Alza','','0',''],r=>{assert.equal(r.net_spending,'5000.00');assert.equal(r.refunds,'1000.00');assert.equal(r.match_count,2)}],
- ['get_monthly_summary',['2026-09-01','2026-12-01','CZK',''],r=>{assert.equal(r.total_income,'135000.00');assert.equal(r.total_net_balance,'72903.75');assert.equal(r.total_spending,'62096.25');assert.equal(r.average_monthly_spending,'20698.75')}],
+ ['get_monthly_summary',['2026-09-01','2026-12-01','CZK',''],r=>{assert.equal(r.total_income,'135000.00');assert.equal(r.total_net_balance,'72828.75');assert.equal(r.total_spending,'62171.25');assert.equal(r.average_monthly_spending,'20723.75')}],
  ['compare_periods',['2026-09-01','2026-10-01','2026-10-01','2026-11-01','CZK'],r=>{assert.equal(r.spending_change,'5780.00');assert.equal(r.spending_change_percent,'30.85')}],
 ];
 for(const [name,values,verify] of cases){
