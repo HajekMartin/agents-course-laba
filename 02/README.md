@@ -1,13 +1,9 @@
-# AI Finance Assistant — Assignment 02, Stage 01
+# Assignment 02 — AI Finance Assistant
 
-Local infrastructure for a future no-code Finance Assistant built with **n8n**.
-Stage 01 implements Docker Compose, PostgreSQL isolation and persistence, local
-Unsloth connectivity checks, and instructions for developing workflows through
-n8n's built-in instance-level MCP server. Assignment 01 in `../01/` is independent.
-
-**No banking workflows, financial tables, imports, or AI agent are implemented.**
-The final deliverables will be importable n8n workflow JSON files, including one
-main workflow demonstrating the assignment.
+Stage 02 implements two real n8n workflows over a dedicated PostgreSQL finance
+schema and the existing local Unsloth endpoint. No cloud model, bank integration,
+custom frontend, or application microservice is used. Assignment 01 is independent
+and its files are unchanged.
 
 ## Original assignment
 
@@ -27,277 +23,354 @@ main workflow demonstrating the assignment.
 
 Selected platform: **n8n**.
 
-## Planned features
+## Purpose and stack
 
-Later stages will import bank statements from CSV/XLSX, store transactions,
-prevent duplicate imports, categorize expenses, answer financial questions,
-calculate spending by category, compare periods, identify recurring payments,
-and retrieve transaction history. Development will use synthetic statements.
+Upload synthetic or private canonical bank statements, categorize transactions,
+and ask Czech financial questions calculated from stored transactions.
+
+| Component | Actual version / location | Responsibility |
+| --- | --- | --- |
+| n8n | `docker.n8n.io/n8nio/n8n:2.46.6` | Forms, file extraction, AI Agent, tools, chat |
+| PostgreSQL | `postgres:17.11-bookworm` | Exact arithmetic, validation, deduplication, storage |
+| Unsloth | Existing host installation, OpenAI-compatible API | Local inference and native tool calling |
+| Codex + built-in n8n MCP | Existing OAuth connection | Development, schema discovery, validation and workflow changes |
+
+The model selection was obtained from the configured endpoint's `/models` list;
+it is configurable in the **Local Unsloth Model** node. The current local model is
+`unsloth/Qwen3.5-9B-GGUF`. Its name is configuration, not an assumed cloud default.
 
 ## Architecture
 
-The host runs Codex, a browser, and the user's existing Unsloth Studio. Docker runs
-two services on a dedicated bridge network. Only n8n publishes a port, on IPv4
-loopback. Its built-in MCP endpoint and editor share this authenticated service.
-PostgreSQL stores n8n internals and the empty finance database separately.
-See the [architecture diagram and boundaries](docs/architecture.md).
-
-## Technology stack
-
-| Component | Pinned official image / location | Purpose |
-| --- | --- | --- |
-| n8n Community | `docker.n8n.io/n8nio/n8n:2.46.6` | Editor, runtime, built-in MCP |
-| PostgreSQL 17 | `postgres:17.11-bookworm` | One server, two application databases |
-| Docker Compose v2 | Host | Lifecycle, network, volumes, readiness |
-| Unsloth Studio | Existing host installation | Future local OpenAI-compatible inference |
-| Codex | Existing local CLI / IDE | Future workflow development over MCP |
-
-n8n's official Docker guide identified `2.46.6` as stable when verified.
-Creation/editing through instance MCP requires n8n **2.13.0 or later**; this pin
-also includes the newer MCP connection settings. No license activation, community
-packages, third-party MCP server, or additional assistant stack is required here.
-
-Official references:
-[n8n Docker](https://docs.n8n.io/hosting/installation/docker/),
-[n8n Compose](https://docs.n8n.io/deploy/host-n8n/install-options/install-using-docker-compose),
-[PostgreSQL image](https://hub.docker.com/_/postgres),
-[instance MCP](https://docs.n8n.io/connect/connect-to-n8n-mcp-server),
-[MCP client examples](https://docs.n8n.io/connect/connect-to-n8n-mcp-server/mcp-client-examples),
-[Codex MCP](https://developers.openai.com/codex/mcp).
-
-## Directory structure
-
-```text
-02/
-├── README.md
-├── compose.yaml
-├── .env.example
-├── .gitignore
-├── config/
-│   ├── create-env.mjs
-│   └── verify-unsloth.mjs
-├── database/
-│   └── init/
-│       └── 10-create-databases.sql
-├── workflows/
-│   └── README.md
-└── docs/
-    ├── architecture.md
-    ├── development.md
-    ├── codex-mcp.md
-    └── verification.md
+```mermaid
+flowchart LR
+  Browser[Anonymous local demo browser] --> Form[n8n Form Trigger]
+  Form --> Validate[Validate upload and SHA256]
+  Validate --> Extract[Extract From File: CSV or XLSX]
+  Extract --> Import[Parameterized Postgres import]
+  Import --> DB[(finance database)]
+  Import --> Summary[Direct import summary]
+  Browser --> Chat[n8n Chat Trigger]
+  Chat --> Agent[n8n AI Agent]
+  Agent <--> Model[Local Unsloth on host]
+  Agent <--> Memory[Simple Memory: five interactions]
+  Agent <--> Tools[Four fixed read-only PostgreSQL tools]
+  Tools --> DB
+  Agent --> Evidence[Verify database evidence]
+  Evidence --> Browser
+  Codex[Codex development client] --> MCP[Instance-level n8n MCP]
+  MCP --> Workflows[Build and validate workflows]
 ```
 
-`workflows/README.md` reserves and explains the future deliverable location;
-there are intentionally no placeholder workflow JSON files.
+MCP is a **development interface used by Codex**. The running assistant does not
+connect to MCP: its tools are four native Postgres Tool subnodes attached through
+`ai_tool` connections. The LLM chooses tools and parameters; fixed parameterized SQL
+queries execute only when the agent calls them. Whole tables are never placed in
+the prompt. No subworkflows or community packages are needed.
 
-## Prerequisites
+## Start and initialize
 
-- Docker Desktop with its daemon running (macOS/Windows), or Docker Engine with
-  Compose v2 (Linux). No host Python, Node.js, n8n, or PostgreSQL installation.
-- A free local TCP port `5678`, Internet access for the initial official image pulls.
-- A browser for initial owner setup and explicit OAuth consent.
-- Local Codex CLI or IDE for MCP development; the CLI is not required to start Docker.
-- Existing Unsloth Studio is optional for Stage 01 startup. No model is installed
-  or started by this project.
-
-Commands below use a POSIX shell; on Windows use WSL2 with Docker Desktop integration.
-
-## Docker startup
-
-From the repository root, generate a private `.env` with independent random database
-passwords and an encryption key using Node **inside the official n8n image**:
+Preserve the existing `.env`, encryption key, Docker volumes, owner login and MCP
+consent from Stage 01. From the repository root:
 
 ```bash
 cd 02
-docker run --rm --entrypoint node \
-  --mount "type=bind,src=$PWD,dst=/project" --workdir /project \
-  docker.n8n.io/n8nio/n8n:2.46.6 config/create-env.mjs
-docker compose config --quiet
-docker compose up -d
-```
-
-The generator refuses to overwrite an existing `.env`. It does not print secrets.
-Alternatively copy `.env.example` to `.env` and fill the four mandatory secrets
-with separate strong random values. Compose rejects missing or empty secrets.
-Keep the generated file and backups private; `.env` is ignored by Git.
-
-Wait for readiness without fixed sleeps:
-
-```bash
 docker compose up -d --wait --wait-timeout 180
-docker compose ps
+node config/setup-finance.mjs
 ```
 
-Only the first startup needs environment generation. Subsequent starts are simply
-`cd 02` followed by `docker compose up -d`.
-
-In VS Code, open the repository root and select **Run and Debug → Finance: Start n8n → F5**.
-The profile starts this project's services, waits for readiness, and opens Chrome
-at `http://localhost:5678`. Ending the debug session stops only this project's
-services and preserves their data. Generate `.env` once using the steps above
-before the first launch. If you change `N8N_PORT`, update this profile's browser
-URL in `.vscode/launch.json` accordingly. The Marketplace profile stays available.
-
-### Environment configuration
-
-| Variables | Requirement |
-| --- | --- |
-| `POSTGRES_PASSWORD`, `N8N_DB_PASSWORD`, `FINANCE_DB_PASSWORD` | Mandatory, separate random secrets |
-| `N8N_ENCRYPTION_KEY` | Mandatory stable secret; preserve with backups |
-| `POSTGRES_USER` | Bootstrap administrator, default `postgres`; never used by n8n |
-| `N8N_DB_NAME`, `N8N_DB_USER` | Default `n8n` / `n8n` |
-| `FINANCE_DB_NAME`, `FINANCE_DB_USER` | Default `finance` / `finance_app` |
-| `N8N_HOST`, `N8N_PORT` | Default `localhost` / `5678`; host-side URL and port |
-| `TIMEZONE` | Default `Europe/Prague`; container and n8n schedule timezone |
-| `UNSLOTH_BASE_URL`, `UNSLOTH_MODEL` | Required only for checking/using the existing local LLM |
-| `UNSLOTH_API_KEY` | Optional, only if the local API requires it |
-
-Application role/database names must be distinct lowercase SQL identifiers (up to
-63 characters) and must not reuse system database or administrator names.
-Changing database names/passwords in `.env` after initialization does not migrate
-existing storage. See [development and persistence](docs/development.md).
-Container port `5678` stays fixed even when the host-side `N8N_PORT` changes.
-Keep `N8N_HOST=localhost`; setting it does not change the loopback publishing boundary.
-
-## n8n first-time setup
-
-1. Open **http://localhost:5678** (use the configured host port if changed).
-2. Complete the built-in setup form and create your own owner account with a strong
-   password. The project never creates, bypasses, or disables this account.
-3. Skip optional license registration and cloud/AI integrations. Community edition
-   is sufficient for this infrastructure.
-4. Enable MCP and authorize Codex using the instructions below.
-
-The owner account is local to this n8n instance. Container health does not imply
-owner setup or MCP authorization has been completed.
-
-## PostgreSQL configuration
-
-The `postgres` container has **no published host port**. Use `docker compose exec`
-for inspection. On an empty volume the official entrypoint creates:
-
-| Database | Owner / login | Contents in Stage 01 |
-| --- | --- | --- |
-| `postgres` | `POSTGRES_USER` | Bootstrap/administration |
-| `n8n` | `N8N_DB_USER` | n8n's own tables/migrations in `public` |
-| `finance` | `FINANCE_DB_USER` | Empty `finance` schema; no financial tables |
-
-Each application role is a non-superuser without role/database creation rights.
-Public database privileges are revoked so the two application roles cannot connect
-to each other's database. Database owner privileges support future migrations;
-a more restricted runtime role can be added with the future finance schema.
-The future PostgreSQL n8n credential will use host `postgres`, port `5432`, database
-`finance`, and the finance account from `.env`. It is **not created in Stage 01**.
-The finance password is not passed to the n8n container.
-
-Named volumes store PostgreSQL data at `/var/lib/postgresql/data` and n8n data at
-`/home/node/.n8n`, including instance configuration even though SQLite is unused.
-
-## Unsloth connectivity
-
-In your existing Studio, inspect the API/server settings and the generated
-OpenAI-compatible client example. Identify its API base URL (usually ending in
-`/v1`, not necessarily the Studio web UI URL), configured API port, and optional key.
-Use its model list endpoint (`<base URL>/models`) to obtain the exact model ID.
-
-Configure **your actual values** in `.env`; these are examples:
+For a new deployment only, create `.env` first as described in
+[development.md](docs/development.md), complete n8n owner setup, and configure the
+existing local Unsloth API in `.env`:
 
 ```dotenv
 UNSLOTH_BASE_URL=http://host.docker.internal:8888/v1
-UNSLOTH_MODEL=your-model-id
-UNSLOTH_API_KEY=
+UNSLOTH_MODEL=<exact ID returned by your local /models endpoint>
+UNSLOTH_API_KEY=<your local API key>
 ```
 
-From a container, `localhost` means the container itself. Use
-`host.docker.internal` for the host. Docker Desktop handles host routing on macOS
-and Windows; the explicit `host-gateway` mapping also prepares Linux routing.
-On native Linux a host listener bound only to `127.0.0.1` is not normally reachable
-through the bridge gateway. Bind to the host's Docker-facing interface and restrict
-access with the host firewall if necessary. On macOS, first try the existing local
-listener through Docker Desktop. Do not enable public forwarding or open the API
-to the LAN unnecessarily; a wildcard bind needs appropriate firewall restrictions.
-
-Apply changes and make a real **GET /models** request from the n8n container:
+The real configured endpoint here is `http://host.docker.internal:8888/v1`.
+The existing key from Assignment 01 was verified and copied privately into
+`02/.env` with the user's authorization; it is absent from workflow exports.
+After changing environment settings, run `docker compose up -d n8n`, then:
 
 ```bash
-docker compose up -d n8n
 docker compose exec -T n8n node /opt/finance/verify-unsloth.mjs
+node config/setup-finance.mjs --credentials-only
 ```
 
-The check prints available IDs and succeeds only when the configured model is
-listed. It sends no prompt, performs no inference, rejects redirects, and times
-out after 10 seconds. A models-list success does not establish tool-calling or
-inference compatibility. No cloud fallback or automatic n8n AI credential exists.
-Future workflows must explicitly use this local endpoint and model; environment
-access inside workflow nodes stays blocked, so configure n8n credentials locally
-when that stage is implemented.
+Setup applies the reproducible migration, creates the restricted reader role, and
+imports encrypted n8n credentials through the official Server CLI. MCP has no
+credential-creation operation. Secrets travel over stdin and a temporary mode-0600
+container file, which is removed after import; no decrypted credentials are exported.
+Host Node 22 is needed for these administrative and test scripts, not for runtime.
 
-## Codex MCP setup
-
-1. Sign in as the owner. Open **Settings → Instance-level MCP → Enable MCP access**.
-2. Select **Connect** in **Connection details**, choose **OAuth (recommended)**,
-   and select **Codex**. Confirm the displayed Server URL is
-   `http://localhost:5678/mcp-server/http`.
-3. In a local terminal with Codex available:
-
-   ```bash
-   codex mcp add n8n --url "http://localhost:5678/mcp-server/http"
-   codex mcp login n8n
-   codex mcp list
-   ```
-
-4. Approve access in the n8n browser authorization screen, reviewing the requested
-   read/build/execute permissions. This is an explicit manual consent step.
-5. Start a new Codex session or restart the IDE extension; inspect `/mcp` and ask
-   Codex to list the server's tools and run a read-only `search_workflows` request.
-
-Server registration alone does not prove an authenticated connection. The detailed
-[Codex MCP guide](docs/codex-mcp.md) covers permission checks, the official bearer-token
-alternative, execution limits, and troubleshooting. No MCP tokens are generated
-or stored by this project. No separate MCP server is installed.
-
-## Verification commands
-
-Run from `02/` after generating `.env`:
+For a first-ever environment, the Stage 01 environment generator remains available:
 
 ```bash
-docker compose config --quiet
-docker compose up -d --wait --wait-timeout 180
-docker compose ps
-curl --fail --silent --show-error http://localhost:5678/healthz/readiness
-curl --fail --silent --show-error --output /dev/null http://localhost:5678/
-docker compose exec -T postgres sh -c 'pg_isready -h 127.0.0.1 -U "$POSTGRES_USER" -d postgres'
-docker compose exec -T n8n n8n --version
-docker compose exec -T n8n node /opt/finance/verify-unsloth.mjs
+docker run --rm --entrypoint node \
+  --mount "type=bind,src=$PWD,dst=/project" --workdir /project \
+  docker.n8n.io/n8nio/n8n:2.46.6 config/create-env.mjs
 ```
 
-The last command requires a running, correctly configured Unsloth API. MCP verification
-requires the owner setup and authorization above. See [recorded verification results](docs/verification.md)
-and [database/persistence inspection](docs/development.md).
+It refuses to overwrite `.env`. Compose still uses only the two existing services.
+PostgreSQL has no published host port; n8n publishes only `127.0.0.1:5678`.
+The VS Code **Finance: Start n8n** debug profile remains available.
 
-## Current implementation status
+## Database
 
-Implemented: two pinned official services, PostgreSQL-backed n8n, persistent volumes,
-loopback editor publishing, database isolation and empty finance schema, readiness
-dependencies, `Europe/Prague`, configurable host-model connectivity, and MCP setup
-documentation. Authentication remains enabled. n8n diagnostics, update notifications,
-templates, personalization, and community package installation are disabled.
-Python Code nodes are disabled; this two-service stage uses the image's built-in
-JavaScript runner and does not deploy an external task-runner service.
+`database/init/10-create-databases.sql` preserves Stage 01 database isolation.
+`database/001-finance.sql` creates the following in the dedicated `finance` database:
 
-The bridge allows outbound connectivity to the host; it is not an egress firewall.
-Do not configure cloud model credentials or send bank statements to cloud providers.
-Codex is a development client whose provider may receive tool responses: use synthetic
-data and keep real financial data out of workflow parameters, pin data, and executions
-visible to development clients. No Docker socket or host home directory is mounted.
+| Object | Purpose |
+| --- | --- |
+| `finance.accounts` | Personal logical account per supported currency |
+| `finance.categories` | Eleven named categories |
+| `finance.transactions` | Signed `NUMERIC(18,2)` amounts, dates, merchant, category, source ID, deduplication key |
+| `finance.imports` | SHA256 file hash, counts, status, bounded validation errors; no statement body |
+| `finance.categorization_rules` | Ordered merchant regular expressions |
+| `finance.ledger` | Read-only reporting view with income, net spending and net balance |
 
-## Future stages
+Primary keys, foreign keys, sign/currency checks, unique file hashes and transaction
+keys enforce consistency. Indexes cover dates, category/date, merchant and bank IDs.
+All sums and averages execute in PostgreSQL. Monetary results travel to the model
+as decimal strings. No floating-point database columns or JavaScript money sums.
 
-1. Define finance tables and safe synthetic test inputs.
-2. Build CSV/XLSX import, normalization, categorization, and deduplication workflows.
-3. Build the local-LLM Finance Assistant and its scoped database tools.
-4. Validate/test through MCP, export workflows, and review sanitized JSON in Git.
+**Sign convention:** incoming is positive; outgoing is negative. `expense` must be
+negative, `income` and `refund` positive; `transfer` can have either sign. Refunds
+reduce spending in their booking month and original merchant category. Explicit
+transfers are excluded from income, spending and net balance. Transfers are identified
+only through the optional `transaction_type` column, never guessed from an amount.
+Positive rows without a type default to income; mark refunds explicitly.
 
-The intended development cycle is documented in [development.md](docs/development.md).
-Stage 01 stops before these workflow and agent features.
+The importer uses `finance_app` in the application database. The agent uses
+`finance_reader`, which can select only `finance.ledger`, cannot insert or execute
+the import function, has no schema-create rights and has a 10-second statement
+timeout. Both credentials are separate from n8n's internal database account.
+`database/002-reader.sql` creates the restricted role. No n8n internal tables are
+created or edited by this application migration.
+
+Each import is one atomic function call with a transaction advisory lock. Individual
+invalid rows are reported while valid rows commit; `partial` makes this explicit.
+Unexpected row errors expose only a generic message. At most 100 error details are
+retained; invalid counts still cover all rows.
+
+**Deduplication:** bank ID + logical account is preferred, and an identical ID with
+changed financial data is rejected. Without an ID, SHA256 covers account, date,
+exact signed amount, currency, normalized description, merchant, type and an
+occurrence ordinal. Two identical legitimate rows within a statement survive.
+Across overlapping statements, indistinguishable identical rows can still collide;
+a later independent identical payment cannot be distinguished reliably without a
+bank ID. Supply `transaction_id` whenever available. File hashes make identical
+uploads idempotent, including CSV/XLSX overlap via their bank IDs.
+
+## Import workflow
+
+**Finance - Import Bank Statement**, ID `ObNXCw6o4NlnPtMm`:
+[open workflow](http://localhost:5678/workflow/ObNXCw6o4NlnPtMm).
+
+Open **http://localhost:5678/form/finance-import**. This local demo form is anonymous
+and requires no username or password. Choose one file and submit. A direct response
+displays file name, processed/imported/duplicate/invalid counts, status and safe errors.
+The editor's Form Trigger also exposes the URL.
+
+Canonical header (all six columns required, values for the last two may be empty):
+
+```text
+date,amount,currency,description,merchant,transaction_id
+```
+
+An optional seventh column, `transaction_type`, accepts `expense`, `income`,
+`refund` or `transfer`. No automatic bank-specific column mapping is attempted.
+
+- CSV: UTF-8, optional BOM, comma delimiter, header row; quote decimal-comma amounts
+  and any fields containing commas. Malformed CSV is not silently skipped.
+- XLSX: sheet named `Transactions`, header row, dates stored as ISO text. Numeric
+  amounts and textual Czech amounts work. Excel date serials and arbitrary bank
+  layouts are deliberately unsupported.
+- Dates: strict `YYYY-MM-DD` or `DD.MM.YYYY`, real calendar dates, 1900–2100. Stored
+  as `DATE`; no UTC conversion is applied to a booking date. Execution timezone is
+  `Europe/Prague`; audit timestamps are `TIMESTAMPTZ`.
+- Amounts: optional sign, one dot or comma decimal separator, at most two fractional
+  digits; correctly grouped Czech spaces/NBSP supported (`-6 000,00`). Ambiguous
+  formats such as `1,234.56`, trailing signs and parentheses are rejected.
+- Currency: uppercase `CZK`, `EUR`, `USD`, `GBP`, `PLN`, `CHF`; no FX conversion.
+- Text is trimmed with whitespace collapsed. Merchant identity is never invented;
+  an empty or unknown merchant defaults to `Other`.
+- Limits: one file, 2 MiB upload, 10 MiB declared expanded XLSX content, 5000 rows.
+  Oversized or unsupported input is rejected. No PDF, OCR or bank API access.
+
+Rules in `finance.categorization_rules` map Lidl/Albert/Kaufland to Groceries,
+Netflix/Spotify to Subscriptions, Shell/OMV/DPP to Transport, Alza to Shopping,
+and several clearly synthetic merchants to other demo categories. No LLM call per row.
+
+Form Trigger **2.1** is intentionally used: this installed, supported version can
+respond through Respond to Webhook. Newer Form completion nodes persist a waiting
+execution until the browser resumes it; avoiding that prevents abandoned completion
+pages retaining raw statements. This type-version change used documented CLI
+export/import because MCP cannot edit a node's type version. The final graph and
+actual HTTP uploads were verified again after import.
+
+## AI Agent and Unsloth
+
+**Finance - AI Assistant**, ID `u4woXC4KYKne0clG`:
+[open workflow](http://localhost:5678/workflow/u4woXC4KYKne0clG).
+Open the workflow's Chat Trigger hosted URL, or use its **Open chat** control:
+
+**http://localhost:5678/webhook/8d4ad2bd-7977-4335-a473-a8f537558bb2/chat**
+
+The local demo chat is anonymous and requires no username or password. The n8n
+editor and development MCP retain their own authentication. Both demo endpoints
+remain available only through the existing localhost port.
+
+The OpenAI Chat Model 1.3 node uses the **Finance - Local Unsloth** credential's
+custom Base URL and API key. Responses API is disabled; native Chat Completions
+`tool_calls` and matching tool results remain managed by the genuine n8n AI Agent
+3.1. There is no HTTP-only imitation agent or cloud fallback. The selected local
+model's thinking mode is disabled for this workflow; generation is bounded and
+configured to reduce repeated text. Simple Memory 1.4 keeps five interactions per
+session in n8n memory; it is not persistent and resets on restart. A follow-up must
+query PostgreSQL again. The local model occasionally skips that query; the evidence
+workflow retries at most twice, then returns a safe message with no monetary answer. Earlier tuning runs also
+produced repeated text or unsupported extra amounts; the final evidence filter
+removes unsupported numeric sentences. These limitations are not hidden by the tests.
+
+| Tool | Fixed operation and parameters |
+| --- | --- |
+| `get_spending_summary` | Category net spending and total; `start_date`, `end_date`, `currency` |
+| `search_transactions` | Merchant/category/type/amount filters, exact totals over all matches and at most 50 rows; adds `merchant`, `category`, `min_amount`, `transaction_type` |
+| `get_monthly_summary` | Monthly income, gross expenses, refunds, net spending, balance and calendar-month average; optional `category` |
+| `compare_periods` | Two periods' totals, exact changes and spending percentage change; `first_start`, `first_end`, `second_start`, `second_end`, `currency` |
+
+All starts are inclusive and ends exclusive. An empty date filter uses stored
+coverage; default currency is CZK. Monthly output is capped at 120 months and marks
+truncation. Search truncation does not truncate its SQL-calculated totals. Queries
+never accept generated SQL. Category names in tool parameters are English.
+
+A final evidence check rejects answers with no actual tool observation and removes
+sentences with unsupported numeric values, including amounts stated as ranges. Tool steps stay internal to the workflow in
+normal use. This is a practical safeguard, not a formal proof of arbitrary prose;
+small local models can still choose an unsuitable tool, associate a known amount
+with the wrong month, or produce awkward wording.
+No fabricated fallback amounts are returned.
+
+Example questions:
+
+- „Za co jsem v říjnu 2026 utratil nejvíc?“
+- „A kolik z toho bylo za potraviny?“
+- „Kolik jsem měl příjmů v říjnu 2026?“
+- „Jaké byly měsíční příjmy a výdaje za září až listopad 2026?“
+- „Jaká byla moje největší výdajová transakce v říjnu 2026?“
+- „Kolik peněz jsem utratil v Alze?“
+- „Porovnej výdaje za září 2026 a říjen 2026.“
+- „Najdi transakce nad 2000 Kč.“
+- „Za co bych mohl nejvíc ušetřit?“
+
+## Privacy and retention
+
+Inference uses only the configured local endpoint. Do not configure an external
+provider, publish through a tunnel, or place real statements/pin data in Git.
+The demo form and chat allow anonymous access on localhost at the user's request.
+The development client/provider can receive MCP tool results: use synthetic data
+for development. `.env`, private inputs, backups and unreviewed exports are ignored.
+Credentials live encrypted in n8n; preserve `N8N_ENCRYPTION_KEY` with secure backups.
+
+Workflow and instance settings disable saved success/error/manual execution data
+and progress. n8n **temporarily writes execution data and binary files during runs**,
+then soft-deletes unsaved executions; physical pruning is asynchronous. Hard-delete
+buffer is zero and pruning runs every minute. A 24-hour / 100-execution cap is an
+additional fallback for saved history. This is not secure erasure of disk blocks,
+WAL, host snapshots or backups. Do not pin real financial executions or leave manual
+waiting executions. Import summaries retain only file name/hash, counts and safe
+row errors, never the original statement. Conversation memory contains recent chat
+content and tool results in process memory and is lost on restart.
+
+## MCP development and workflow deliverables
+
+Development connected through the existing authenticated MCP server, listed the
+initial empty workflows/credentials, discovered exact installed node schemas,
+validated SDK graphs and created both workflows in the owner's **personal project**.
+The SDK reference and relevant design guidance were read before creation. MCP
+performed edits, validation, publication and a real chat execution. Multipart file
+uploads and session-controlled multi-turn chat were tested through the actual
+native HTTP endpoints because MCP inputs cannot carry binary files or a session ID.
+Server CLI handled credential creation, export/import and the trigger-version edit.
+See [MCP connection setup](docs/codex-mcp.md) and
+[official Server CLI](https://docs.n8n.io/hosting/cli-commands/).
+
+Regenerate the two exports with `node config/export-workflows.mjs` after changing
+these local workflow IDs if you imported into another instance. Actual sanitized n8n exports:
+
+```text
+workflows/finance-import.json
+workflows/finance-agent.json
+```
+
+Import using n8n **Import from File**. On a clean compatible n8n instance (tested
+version 2.46.6), create/reassign these credentials independently:
+
+| Credential name | Type | Configuration |
+| --- | --- | --- |
+| Finance - Import Database | Postgres | `postgres:5432`, finance database, finance_app password from `.env`, SSL disabled on this private Docker bridge |
+| Finance - Read Only Database | Postgres | Same server/database, `finance_reader`, FINANCE_READER_PASSWORD |
+| Finance - Local Unsloth | OpenAI | Custom local Base URL, local API key; choose exact installed model ID in model node |
+
+Attach Import Database only to the import Postgres node; attach Read Only Database
+to all four agent tools. Both demo triggers use Authentication = None. Exports omit secret
+values and pin data and import as inactive. Review local endpoint/model and paths,
+then publish. Workflow IDs/webhook IDs can change on a new instance; use the URLs
+shown by the imported triggers. There are no external subworkflow ID dependencies.
+
+## Testing and results
+
+Synthetic fixtures are in `examples/`: canonical CSV (43 rows, 42 unique), XLSX
+(the same rows plus one new transaction), invalid amount/date CSV, and missing-column
+CSV. They cover September–November 2026, income, refunds, transfers, eleven category
+seeds and distinct bank IDs for two otherwise identical purchases. No real bank data.
+
+```bash
+# Run from 02 after setup, workflow import and publication.
+node tests/imports.mjs
+node tests/tools.mjs
+node tests/evidence.mjs
+docker compose exec -T postgres sh -c \
+  'psql -U "$FINANCE_DB_USER" -d "$FINANCE_DB_NAME" -v ON_ERROR_STOP=1' < tests/database.sql
+```
+
+`tests/chat.mjs` is the diagnostic acceptance harness: run it against the real chat
+with `exposeTestEvidence = true` temporarily set in **Return Verified Answer**
+and the workflow republished. Run `node tests/chat.mjs`, then restore `false` and
+publish again. Use synthetic data only. It
+compares the complete October category result with an independent SQL query over
+base tables, checks actual calls and amounts, and exercises one multi-turn session.
+The application normally hides intermediate steps through its evidence node.
+Recorded synthetic evidence is in `tests/acceptance-results.json` and the final
+verification record is [docs/verification.md](docs/verification.md).
+
+First-run imports: CSV **42 inserted / 1 duplicate**; XLSX **1 inserted / 43 duplicates**.
+Repeated imports insert zero. The final demo database contains **43 transactions**.
+Invalid amounts, impossible dates and missing columns are explicitly reported.
+Constraint, NUMERIC, FK, reader privilege, normalization and fallback-dedup tests
+pass inside a rollback transaction.
+
+Independent October 2026 oracle: Housing **14,000.00 CZK**, Shopping **5,000.00 CZK**,
+Groceries **2,720.75 CZK**, Restaurants **1,010.00 CZK**, Transport **780.00 CZK**,
+Subscriptions **468.00 CZK**, Entertainment **300.00 CZK**, Healthcare **240.00 CZK**.
+Net spending **24,518.75 CZK**, gross expenses **25,518.75 CZK**, refunds **1,000.00 CZK**,
+income **45,000.00 CZK**, net balance **20,481.25 CZK**. Transfers are excluded.
+
+## Limitations and assignment compliance
+
+This is a local single-user teaching application. It supports one logical account
+per currency, a strict canonical format, explicit transfer/refund labels, and no
+FX conversion. It cannot certify statement completeness. Refunds are recognized
+in their booking month; cross-month matching to purchases is not attempted.
+Missing bank IDs have the documented fingerprint ambiguity. Search returns at most
+50 detailed rows, monthly output at most 120 months. The evidence guard cannot
+prove every semantic claim in free text; inspect results for consequential decisions.
+No forecasting, investment/tax advice, PDF/OCR, vector database or bank API is included.
+
+The deliverable demonstrates the assigned no-code platform, a genuine AI Agent,
+local LLM, database access, actual tool execution, Czech natural-language answers,
+conversation context, reproducible SQL and importable exported workflow JSON.
+The existing Stage 01 operational guides retain additional startup, backup and
+recovery detail; Stage 02 behavior is described in this README and final test record.

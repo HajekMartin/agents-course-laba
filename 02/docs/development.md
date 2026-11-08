@@ -24,14 +24,14 @@ Avoid posting private logs or the output of unrestricted `docker compose config`
 or `docker inspect`: environment values can include secrets. Prefer `config --quiet`
 for routine configuration validation.
 
-## Intended workflow development cycle
+## Workflow development cycle
 
 1. Start Compose and wait for readiness.
 2. Open n8n in the browser and complete initial owner setup.
 3. Enable **Settings → Instance-level MCP**.
 4. Connect local Codex and approve OAuth permissions explicitly.
 5. Inspect available tools and complete an authenticated read-only request.
-6. In later stages, ask Codex to create/modify workflows through MCP using its live
+6. Ask Codex to create/modify workflows through MCP using its live
    SDK guidance and tool schemas. Review which resources and scopes it can access.
 7. Validate before saving, test with synthetic data, and inspect execution results.
 8. Export completed workflow JSON into `workflows/`.
@@ -40,8 +40,12 @@ for routine configuration validation.
 10. Commit sanitized JSON definitions and related documentation.
 
 The instance is the development environment. Exported, reviewed JSON files are
-the source-controlled deliverables. Stage 01 contains no workflow definitions.
+the source-controlled deliverables. Stage 02 exports are `finance-import.json` and `finance-agent.json`; see the README for credential reassignment.
 See [codex-mcp.md](codex-mcp.md) for authentication and execution permissions.
+
+Stage 02 application setup is `node config/setup-finance.mjs`. It applies the finance
+migration and creates encrypted credentials; refer to the main README for current
+workflow operation, tests, privacy settings, and limitations.
 
 ## Database inspection
 
@@ -56,7 +60,7 @@ docker compose exec postgres sh -c 'psql -U "$POSTGRES_USER" -d postgres -c "\l"
 # Internal n8n tables (official application migrations).
 docker compose exec postgres sh -c 'psql -U "$POSTGRES_USER" -d "$N8N_DB_NAME" -c "\dt public.*"'
 
-# Empty finance schema and no user tables in Stage 01.
+# Finance schema (initially empty before config/setup-finance.mjs).
 docker compose exec postgres sh -c 'psql -U "$POSTGRES_USER" -d "$FINANCE_DB_NAME" -c "\dn" -c "\dt finance.*"'
 
 # Authenticate with the non-superuser finance login over TCP.
@@ -105,7 +109,7 @@ docker compose up -d --wait --wait-timeout 180
 
 ## Workflow export and import
 
-In later stages, use the editor workflow menu **Download** to export a workflow,
+Use the editor workflow menu **Download** to export a workflow,
 then save the reviewed JSON as `workflows/<meaningful-name>.json`. The editor's
 **Import from File** action imports the definition. Recreate credentials locally
 and verify inactive imports before publishing or enabling MCP access.
@@ -114,7 +118,7 @@ For reproducible CLI export without host n8n, use a private temporary directory
 in the existing n8n volume and copy it out after success:
 
 ```bash
-# Later stages only; do not create dummy exports in Stage 01.
+# Export only the intended workflows when unrelated workflows exist.
 docker compose exec -T n8n n8n export:workflow --all --separate \
   --output=/home/node/.n8n/workflow-exports/
 mkdir -p exports
@@ -204,7 +208,7 @@ restore on disposable storage before trusting the procedure with real data.
    ```
 
 4. Verify readiness, the editor, an authenticated MCP request and required tools.
-   Repeat workflow tests in later stages, then export reviewed definitions.
+   Repeat the documented import/database/chat tests, then export reviewed definitions.
 
 n8n may migrate its internal database. Downgrading only the image is not a reliable
 rollback; restore the compatible database/files/key backup when required. Version

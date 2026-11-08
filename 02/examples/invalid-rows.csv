@@ -1,0 +1,3 @@
+date,amount,currency,description,merchant,transaction_id,transaction_type
+2026-10-11,12oops,CZK,Synthetic invalid amount,Lidl,BAD-1,expense
+2026-02-30,-50.00,CZK,Synthetic invalid date,Lidl,BAD-2,expense

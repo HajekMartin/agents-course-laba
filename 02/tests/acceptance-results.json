@@ -1,0 +1,499 @@
+{
+  "categoryTotals": {
+    "Housing": "14000.00",
+    "Shopping": "5000.00",
+    "Groceries": "2720.75",
+    "Transport": "780.00",
+    "Healthcare": "240.00",
+    "Restaurants": "1010.00",
+    "Entertainment": "300.00",
+    "Subscriptions": "468.00"
+  },
+  "failures": 0,
+  "records": [
+    {
+      "question": "Za co jsem v říjnu 2026 utratil nejvíc?",
+      "output": "V říjnu 2026 jste utratil nejvíc za bydlení (Housing) – 14 000 Kč. Druhou největší položkou byly nakupy (Shopping) s výdajem 5 000 Kč. Třetí místo obsadily potraviny (Groceries) s celkovou částkou 2 720,75 Kč. Celkové výdaje za tento měsíc činily 24 518,75 Kč.\n\nVýsledky vycházejí pouze z importovaných dat; úplnost výpisů není zaručena.",
+      "verification": {
+        "verified": true,
+        "filteredSentences": 0,
+        "tools": [
+          "get_spending_summary"
+        ]
+      },
+      "steps": [
+        {
+          "tool": "get_spending_summary",
+          "input": {
+            "start_date": "2026-10-01",
+            "end_date": "2026-11-01",
+            "currency": "CZK"
+          },
+          "result": [
+            {
+              "result": {
+                "currency": "CZK",
+                "categories": [
+                  {
+                    "category": "Housing",
+                    "spending": "14000.00"
+                  },
+                  {
+                    "category": "Shopping",
+                    "spending": "5000.00"
+                  },
+                  {
+                    "category": "Groceries",
+                    "spending": "2720.75"
+                  },
+                  {
+                    "category": "Restaurants",
+                    "spending": "1010.00"
+                  },
+                  {
+                    "category": "Transport",
+                    "spending": "780.00"
+                  },
+                  {
+                    "category": "Subscriptions",
+                    "spending": "468.00"
+                  },
+                  {
+                    "category": "Entertainment",
+                    "spending": "300.00"
+                  },
+                  {
+                    "category": "Healthcare",
+                    "spending": "240.00"
+                  }
+                ],
+                "start_date": "2026-10-01",
+                "coverage_end": "2026-10-28",
+                "food_spending": "3730.75",
+                "coverage_start": "2026-10-01",
+                "total_spending": "24518.75",
+                "transaction_count": 15,
+                "end_date_exclusive": "2026-11-01"
+              }
+            }
+          ]
+        }
+      ],
+      "seconds": 14
+    },
+    {
+      "question": "A kolik z toho bylo za potraviny?",
+      "output": "Za potraviny (kategorie Groceries) jste v říjnu 2026 utratil celkem 2 720,75 Kč. Výdaje byly rozděleny mezi tři nákupy: 1 250,50 Kč v Lidl, 850,25 Kč v Albert a 620 Kč v Kaufland. Žádné refundace v této kategorii nebyly zaznamenány. Celkový výdaj za potraviny tvoří třetí největší položku vašich říjnových výdajů.\n\nVýsledky vycházejí pouze z importovaných dat; úplnost výpisů není zaručena.",
+      "verification": {
+        "verified": true,
+        "filteredSentences": 0,
+        "tools": [
+          "search_transactions"
+        ]
+      },
+      "steps": [
+        {
+          "tool": "search_transactions",
+          "input": {
+            "start_date": "2026-10-01",
+            "end_date": "2026-11-01",
+            "category": "Groceries",
+            "currency": "CZK"
+          },
+          "result": [
+            {
+              "result": {
+                "income": "0",
+                "refunds": "0",
+                "currency": "CZK",
+                "truncated": false,
+                "start_date": "2026-10-01",
+                "match_count": 3,
+                "net_spending": "2720.75",
+                "transactions": [
+                  {
+                    "amount": "-1250.50",
+                    "category": "Groceries",
+                    "currency": "CZK",
+                    "merchant": "Lidl",
+                    "description": "Synthetic purchase",
+                    "transaction_date": "2026-10-03",
+                    "transaction_type": "expense"
+                  },
+                  {
+                    "amount": "-850.25",
+                    "category": "Groceries",
+                    "currency": "CZK",
+                    "merchant": "Albert",
+                    "description": "Synthetic purchase",
+                    "transaction_date": "2026-10-09",
+                    "transaction_type": "expense"
+                  },
+                  {
+                    "amount": "-620.00",
+                    "category": "Groceries",
+                    "currency": "CZK",
+                    "merchant": "Kaufland",
+                    "description": "Synthetic purchase",
+                    "transaction_date": "2026-10-14",
+                    "transaction_type": "expense"
+                  }
+                ],
+                "gross_expenses": "2720.75",
+                "end_date_exclusive": "2026-11-01"
+              }
+            }
+          ]
+        }
+      ],
+      "seconds": 23
+    },
+    {
+      "question": "Kolik jsem měl příjmů v říjnu 2026?",
+      "output": "V říjnu 2026 jste měl jeden příjem ve výši 45 000 CZK. Celkový počet transakcí v tomto měsíci byl 18, včetně jednoho refundu ve výši 1 000 CZK.\n\nVýsledky vycházejí pouze z importovaných dat; úplnost výpisů není zaručena.",
+      "verification": {
+        "verified": true,
+        "filteredSentences": 0,
+        "tools": [
+          "get_monthly_summary"
+        ]
+      },
+      "steps": [
+        {
+          "tool": "get_monthly_summary",
+          "input": {
+            "start_date": "2026-10-01",
+            "end_date": "2026-11-01"
+          },
+          "result": [
+            {
+              "result": {
+                "months": [
+                  {
+                    "month": "2026-10-01",
+                    "income": "45000.00",
+                    "refunds": "1000.00",
+                    "spending": "24518.75",
+                    "net_balance": "20481.25",
+                    "income_count": 1,
+                    "refund_count": 1,
+                    "expense_count": 14,
+                    "gross_expenses": "25518.75",
+                    "transaction_count": 18
+                  }
+                ],
+                "currency": "CZK",
+                "truncated": false,
+                "start_date": "2026-10-01",
+                "coverage_end": "2026-10-28",
+                "total_income": "45000.00",
+                "total_refunds": "1000.00",
+                "coverage_start": "2026-10-01",
+                "total_spending": "24518.75",
+                "total_net_balance": "20481.25",
+                "end_date_exclusive": "2026-11-01",
+                "average_monthly_spending": "24518.75"
+              }
+            }
+          ]
+        }
+      ],
+      "seconds": 10
+    },
+    {
+      "question": "Jaké byly měsíční příjmy a výdaje za září až listopad 2026?",
+      "output": "Za září až listopad 2026 (do 15. listopadu) byly celkové příjmy 135 000 Kč a celkové výdaje 62 096,25 Kč. Měsíční příjmy činily vždy 45 000 Kč, zatímco výdaje se pohybovaly mezi 18 738,75 Kč (září a listopad) a 24 518,75 Kč (říjen). Celkový čistý zisk za tři měsíce byl 72 903,75 Kč po odečtení jedné refundace ve výši 1 000 Kč.\n\nVýsledky vycházejí pouze z importovaných dat; úplnost výpisů není zaručena.",
+      "verification": {
+        "verified": true,
+        "filteredSentences": 0,
+        "tools": [
+          "get_monthly_summary"
+        ]
+      },
+      "steps": [
+        {
+          "tool": "get_monthly_summary",
+          "input": {
+            "start_date": "2026-09-01",
+            "end_date": "2026-12-01"
+          },
+          "result": [
+            {
+              "result": {
+                "months": [
+                  {
+                    "month": "2026-09-01",
+                    "income": "45000.00",
+                    "refunds": "0",
+                    "spending": "18738.75",
+                    "net_balance": "26261.25",
+                    "income_count": 1,
+                    "refund_count": 0,
+                    "expense_count": 9,
+                    "gross_expenses": "18738.75",
+                    "transaction_count": 12
+                  },
+                  {
+                    "month": "2026-10-01",
+                    "income": "45000.00",
+                    "refunds": "1000.00",
+                    "spending": "24518.75",
+                    "net_balance": "20481.25",
+                    "income_count": 1,
+                    "refund_count": 1,
+                    "expense_count": 14,
+                    "gross_expenses": "25518.75",
+                    "transaction_count": 18
+                  },
+                  {
+                    "month": "2026-11-01",
+                    "income": "45000.00",
+                    "refunds": "0",
+                    "spending": "18838.75",
+                    "net_balance": "26161.25",
+                    "income_count": 1,
+                    "refund_count": 0,
+                    "expense_count": 10,
+                    "gross_expenses": "18838.75",
+                    "transaction_count": 13
+                  }
+                ],
+                "currency": "CZK",
+                "truncated": false,
+                "start_date": "2026-09-01",
+                "coverage_end": "2026-11-15",
+                "total_income": "135000.00",
+                "total_refunds": "1000.00",
+                "coverage_start": "2026-09-01",
+                "total_spending": "62096.25",
+                "total_net_balance": "72903.75",
+                "end_date_exclusive": "2026-12-01",
+                "average_monthly_spending": "20698.75"
+              }
+            }
+          ]
+        }
+      ],
+      "seconds": 18
+    },
+    {
+      "question": "Jaká byla moje největší jednotlivá výdajová transakce v říjnu 2026?",
+      "output": "Největší jednotlivá výdajová transakce v říjnu 2026 byla 14 000 Kč za bydlení (Synthetic Rent) provedená 2. října. Celkem bylo v tomto měsíci zaznamenáno 14 výdajů, z nichž nejvyšší částka představovala téměř polovinu celkových výdajů ve výši 25 518,75 Kč.\n\nVýsledky vycházejí pouze z importovaných dat; úplnost výpisů není zaručena.",
+      "verification": {
+        "verified": true,
+        "filteredSentences": 0,
+        "tools": [
+          "search_transactions"
+        ]
+      },
+      "steps": [
+        {
+          "tool": "search_transactions",
+          "input": {
+            "start_date": "2026-10-01",
+            "end_date": "2026-11-01",
+            "transaction_type": "expense"
+          },
+          "result": [
+            {
+              "result": {
+                "income": "0",
+                "refunds": "0",
+                "currency": "CZK",
+                "truncated": false,
+                "start_date": "2026-10-01",
+                "match_count": 14,
+                "net_spending": "25518.75",
+                "transactions": [
+                  {
+                    "amount": "-14000.00",
+                    "category": "Housing",
+                    "currency": "CZK",
+                    "merchant": "Synthetic Rent",
+                    "description": "Synthetic purchase",
+                    "transaction_date": "2026-10-02",
+                    "transaction_type": "expense"
+                  },
+                  {
+                    "amount": "-6000.00",
+                    "category": "Shopping",
+                    "currency": "CZK",
+                    "merchant": "Alza",
+                    "description": "Synthetic purchase",
+                    "transaction_date": "2026-10-18",
+                    "transaction_type": "expense"
+                  },
+                  {
+                    "amount": "-1250.50",
+                    "category": "Groceries",
+                    "currency": "CZK",
+                    "merchant": "Lidl",
+                    "description": "Synthetic purchase",
+                    "transaction_date": "2026-10-03",
+                    "transaction_type": "expense"
+                  },
+                  {
+                    "amount": "-850.25",
+                    "category": "Groceries",
+                    "currency": "CZK",
+                    "merchant": "Albert",
+                    "description": "Synthetic purchase",
+                    "transaction_date": "2026-10-09",
+                    "transaction_type": "expense"
+                  },
+                  {
+                    "amount": "-780.00",
+                    "category": "Transport",
+                    "currency": "CZK",
+                    "merchant": "Shell",
+                    "description": "Synthetic purchase",
+                    "transaction_date": "2026-10-05",
+                    "transaction_type": "expense"
+                  },
+                  {
+                    "amount": "-620.00",
+                    "category": "Groceries",
+                    "currency": "CZK",
+                    "merchant": "Kaufland",
+                    "description": "Synthetic purchase",
+                    "transaction_date": "2026-10-14",
+                    "transaction_type": "expense"
+                  },
+                  {
+                    "amount": "-450.00",
+                    "category": "Restaurants",
+                    "currency": "CZK",
+                    "merchant": "Synthetic Bistro",
+                    "description": "Synthetic purchase",
+                    "transaction_date": "2026-10-10",
+                    "transaction_type": "expense"
+                  },
+                  {
+                    "amount": "-320.00",
+                    "category": "Restaurants",
+                    "currency": "CZK",
+                    "merchant": "Synthetic Cafe",
+                    "description": "Synthetic purchase",
+                    "transaction_date": "2026-10-12",
+                    "transaction_type": "expense"
+                  },
+                  {
+                    "amount": "-300.00",
+                    "category": "Entertainment",
+                    "currency": "CZK",
+                    "merchant": "Synthetic Cinema",
+                    "description": "Synthetic purchase",
+                    "transaction_date": "2026-10-28",
+                    "transaction_type": "expense"
+                  },
+                  {
+                    "amount": "-299.00",
+                    "category": "Subscriptions",
+                    "currency": "CZK",
+                    "merchant": "Netflix",
+                    "description": "Synthetic purchase",
+                    "transaction_date": "2026-10-06",
+                    "transaction_type": "expense"
+                  },
+                  {
+                    "amount": "-240.00",
+                    "category": "Healthcare",
+                    "currency": "CZK",
+                    "merchant": "Synthetic Pharmacy",
+                    "description": "Synthetic purchase",
+                    "transaction_date": "2026-10-25",
+                    "transaction_type": "expense"
+                  },
+                  {
+                    "amount": "-169.00",
+                    "category": "Subscriptions",
+                    "currency": "CZK",
+                    "merchant": "Spotify",
+                    "description": "Synthetic purchase",
+                    "transaction_date": "2026-10-06",
+                    "transaction_type": "expense"
+                  },
+                  {
+                    "amount": "-120.00",
+                    "category": "Restaurants",
+                    "currency": "CZK",
+                    "merchant": "Synthetic Cafe",
+                    "description": "Synthetic purchase",
+                    "transaction_date": "2026-10-20",
+                    "transaction_type": "expense"
+                  },
+                  {
+                    "amount": "-120.00",
+                    "category": "Restaurants",
+                    "currency": "CZK",
+                    "merchant": "Synthetic Cafe",
+                    "description": "Synthetic purchase",
+                    "transaction_date": "2026-10-20",
+                    "transaction_type": "expense"
+                  }
+                ],
+                "gross_expenses": "25518.75",
+                "end_date_exclusive": "2026-11-01"
+              }
+            }
+          ]
+        }
+      ],
+      "seconds": 14
+    },
+    {
+      "question": "Porovnej celkové výdaje za září 2026 a říjen 2026.",
+      "output": "Celkové výdaje za září 2026 činily 18 738,75 CZK, zatímco v říjnu 2026 vzrostly na 24 518,75 CZK. To znamená nárůst o 5 780 CZK, což je zvýšení o 30,85 %. Příjmy zůstaly v obou měsících na úrovni 45 000 CZK.\n\nVýsledky vycházejí pouze z importovaných dat; úplnost výpisů není zaručena.",
+      "verification": {
+        "verified": true,
+        "filteredSentences": 0,
+        "tools": [
+          "compare_periods"
+        ]
+      },
+      "steps": [
+        {
+          "tool": "compare_periods",
+          "input": {
+            "first_start": "2026-09-01",
+            "first_end": "2026-10-01",
+            "second_start": "2026-10-01",
+            "second_end": "2026-11-01",
+            "currency": "CZK"
+          },
+          "result": [
+            {
+              "result": {
+                "periods": [
+                  {
+                    "income": "45000.00",
+                    "period": "first",
+                    "spending": "18738.75",
+                    "start_date": "2026-09-01",
+                    "net_balance": "26261.25",
+                    "transaction_count": 12,
+                    "end_date_exclusive": "2026-10-01"
+                  },
+                  {
+                    "income": "45000.00",
+                    "period": "second",
+                    "spending": "24518.75",
+                    "start_date": "2026-10-01",
+                    "net_balance": "20481.25",
+                    "transaction_count": 18,
+                    "end_date_exclusive": "2026-11-01"
+                  }
+                ],
+                "currency": "CZK",
+                "income_change": "0.00",
+                "spending_change": "5780.00",
+                "spending_change_percent": "30.85"
+              }
+            }
+          ]
+        }
+      ],
+      "seconds": 10
+    }
+  ]
+}

@@ -1,0 +1,44 @@
+date,amount,currency,description,merchant,transaction_id,transaction_type
+2026-09-01,45000.00,CZK,Synthetic salary,Synthetic Employer,DEMO-001,income
+2026-09-02,-14000.00,CZK,Synthetic purchase,Synthetic Rent,DEMO-002,expense
+2026-09-03,-1250.50,CZK,Synthetic purchase,Lidl,DEMO-003,expense
+2026-09-09,"-850,25",CZK,Synthetic purchase,Albert,DEMO-004,expense
+2026-09-14,-620.00,CZK,Synthetic purchase,Kaufland,DEMO-005,expense
+2026-09-05,-780.00,CZK,Synthetic purchase,Shell,DEMO-006,expense
+2026-09-06,-299.00,CZK,Synthetic purchase,Netflix,DEMO-007,expense
+2026-09-06,-169.00,CZK,Synthetic purchase,Spotify,DEMO-008,expense
+2026-09-10,-450.00,CZK,Synthetic purchase,Synthetic Bistro,DEMO-009,expense
+2026-09-12,-320.00,CZK,Synthetic purchase,Synthetic Cafe,DEMO-010,expense
+2026-09-15,-5000.00,CZK,Explicit internal transfer,Personal Savings,DEMO-011,transfer
+2026-09-15,5000.00,CZK,Explicit internal transfer receipt,Personal Savings,DEMO-012,transfer
+2026-10-01,45000.00,CZK,Synthetic salary,Synthetic Employer,DEMO-013,income
+2026-10-02,-14000.00,CZK,Synthetic purchase,Synthetic Rent,DEMO-014,expense
+2026-10-03,-1250.50,CZK,Synthetic purchase,Lidl,DEMO-015,expense
+2026-10-09,"-850,25",CZK,Synthetic purchase,Albert,DEMO-016,expense
+2026-10-14,-620.00,CZK,Synthetic purchase,Kaufland,DEMO-017,expense
+2026-10-05,-780.00,CZK,Synthetic purchase,Shell,DEMO-018,expense
+2026-10-06,-299.00,CZK,Synthetic purchase,Netflix,DEMO-019,expense
+2026-10-06,-169.00,CZK,Synthetic purchase,Spotify,DEMO-020,expense
+2026-10-10,-450.00,CZK,Synthetic purchase,Synthetic Bistro,DEMO-021,expense
+2026-10-12,-320.00,CZK,Synthetic purchase,Synthetic Cafe,DEMO-022,expense
+2026-10-15,-5000.00,CZK,Explicit internal transfer,Personal Savings,DEMO-023,transfer
+2026-10-15,5000.00,CZK,Explicit internal transfer receipt,Personal Savings,DEMO-024,transfer
+2026-11-01,45000.00,CZK,Synthetic salary,Synthetic Employer,DEMO-025,income
+2026-11-02,-14000.00,CZK,Synthetic purchase,Synthetic Rent,DEMO-026,expense
+2026-11-03,-1250.50,CZK,Synthetic purchase,Lidl,DEMO-027,expense
+2026-11-09,"-850,25",CZK,Synthetic purchase,Albert,DEMO-028,expense
+2026-11-14,-620.00,CZK,Synthetic purchase,Kaufland,DEMO-029,expense
+2026-11-05,-780.00,CZK,Synthetic purchase,Shell,DEMO-030,expense
+2026-11-06,-299.00,CZK,Synthetic purchase,Netflix,DEMO-031,expense
+2026-11-06,-169.00,CZK,Synthetic purchase,Spotify,DEMO-032,expense
+2026-11-10,-450.00,CZK,Synthetic purchase,Synthetic Bistro,DEMO-033,expense
+2026-11-12,-320.00,CZK,Synthetic purchase,Synthetic Cafe,DEMO-034,expense
+2026-11-15,-5000.00,CZK,Explicit internal transfer,Personal Savings,DEMO-035,transfer
+2026-11-15,5000.00,CZK,Explicit internal transfer receipt,Personal Savings,DEMO-036,transfer
+2026-10-18,"-6 000,00",CZK,Synthetic purchase,Alza,DEMO-037,expense
+2026-10-22,1000.00,CZK,Synthetic refund,Alza,DEMO-038,refund
+2026-10-25,-240.00,CZK,Synthetic purchase,Synthetic Pharmacy,DEMO-039,expense
+2026-10-28,-300.00,CZK,Synthetic purchase,Synthetic Cinema,DEMO-040,expense
+2026-10-20,-120.00,CZK,Synthetic purchase,Synthetic Cafe,DEMO-COFFEE-A,expense
+2026-10-20,-120.00,CZK,Synthetic purchase,Synthetic Cafe,DEMO-COFFEE-B,expense
+2026-09-03,-1250.50,CZK,Synthetic purchase,Lidl,DEMO-003,expense

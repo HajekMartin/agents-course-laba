@@ -1,0 +1,452 @@
+{
+  "updatedAt": "2026-11-08T16:14:09.095Z",
+  "createdAt": "2026-11-08T15:30:17.632Z",
+  "id": "ObNXCw6o4NlnPtMm",
+  "name": "Finance - Import Bank Statement",
+  "description": "Local anonymous demo: import canonical CSV/XLSX statements into finance PostgreSQL with validation, deterministic categorization, deduplication, and a visible summary.",
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "id": "9a1dd383-9a8f-40f1-9553-1f8c3009cdea",
+      "name": "Upload Statement",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "authentication": "none",
+        "formTitle": "Finance - Bank Statement Import",
+        "formDescription": "Canonical CSV (UTF-8, comma delimiter) or XLSX / Transactions sheet. Maximum 2 MiB and 5000 rows. Positive = incoming; negative = outgoing.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Statement",
+              "fieldType": "file",
+              "multipleFiles": false,
+              "acceptFileTypes": ".csv,.xlsx",
+              "requiredField": true
+            }
+          ]
+        },
+        "responseMode": "responseNode",
+        "options": {
+          "appendAttribution": false
+        },
+        "path": "finance-import"
+      },
+      "webhookId": "8145e4d2-a544-4825-a56b-4f0db8c8817d"
+    },
+    {
+      "id": "699f95ba-6b04-4b0e-928e-e4ef47406caf",
+      "name": "Validate Upload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const item = $input.first();\nconst keys = Object.keys(item.binary || {});\nconst reject = message => [{json:{summary:{file_name:'',processed_rows:0,imported_transactions:0,skipped_duplicates:0,invalid_rows:0,status:'rejected',errors:[{message}]}}}];\nif (keys.length !== 1) return reject('Upload exactly one CSV or XLSX file.');\nconst file = item.binary[keys[0]];\nconst name = (file.fileName || '').replace(/[\\\\/]/g,'_').slice(0,255);\nconst extension = name.split('.').pop().toLowerCase();\nif (!['csv','xlsx'].includes(extension)) return reject('Only canonical CSV and XLSX files are supported.');\nconst buffer = await this.helpers.getBinaryDataBuffer(0, keys[0]);\nif (!buffer.length || buffer.length > 2*1024*1024) return reject('File must be nonempty and at most 2 MiB.');\nif (extension === 'xlsx') {\n  if (buffer.readUInt32LE(0) !== 0x04034b50) return reject('Invalid XLSX container.');\n  let expanded = 0;\n  for (let i=0; i+46<buffer.length; i++) {\n    if (buffer.readUInt32LE(i) === 0x02014b50) {\n      expanded += buffer.readUInt32LE(i+24);\n      if (expanded > 10*1024*1024) return reject('Expanded workbook exceeds 10 MiB.');\n    }\n  }\n}\nreturn [{json:{file_name:name,extension},binary:{statement:file}}];"
+      }
+    },
+    {
+      "id": "2694b3dd-ef04-44be-a38f-6f71cef73070",
+      "name": "Valid Upload",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.4,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.extension ?? '' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "156afcab-c92b-4847-906d-cf2bf19b782d",
+      "name": "Hash Statement",
+      "type": "n8n-nodes-base.crypto",
+      "typeVersion": 2,
+      "position": [
+        660,
+        -100
+      ],
+      "parameters": {
+        "action": "hash",
+        "binaryData": true,
+        "binaryPropertyName": "statement",
+        "type": "SHA256",
+        "dataPropertyName": "file_hash",
+        "encoding": "hex"
+      }
+    },
+    {
+      "id": "53dcad90-742a-47b5-b694-7a59368af505",
+      "name": "CSV Format",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.4,
+      "position": [
+        880,
+        -100
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.extension }}",
+              "rightValue": "csv",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "06fc8cac-3738-4370-a312-356f0501d8df",
+      "name": "Extract CSV",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.2,
+      "position": [
+        1100,
+        -200
+      ],
+      "parameters": {
+        "operation": "csv",
+        "binaryPropertyName": "statement",
+        "options": {
+          "delimiter": ",",
+          "encoding": "utf-8",
+          "enableBOM": true,
+          "headerRow": true,
+          "includeEmptyCells": true,
+          "relaxQuotes": false,
+          "skipRecordsWithErrors": {
+            "value": {
+              "enabled": false
+            }
+          },
+          "maxRowCount": -1
+        }
+      },
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "49798d3b-1e82-4766-85ac-2443c740660d",
+      "name": "Prepare Import Batch",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        -100
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const metadata = $('Hash Statement').first().json;\nconst items = $input.all();\nconst failed = items.some(i => i.json.error);\nif (failed) return [{json:{file_name:metadata.file_name,file_hash:metadata.file_hash,rows:[]}}];\nconst rows = items.filter(i => Object.keys(i.json).length).map(i => i.json);\nif (rows.length > 5000) throw new Error('Statement exceeds the 5000-row limit.');\nreturn [{json:{file_name:metadata.file_name,file_hash:metadata.file_hash,rows}}];"
+      }
+    },
+    {
+      "id": "8a38c97c-1213-4224-9f7e-f8d49e1b59b5",
+      "name": "Extract XLSX",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.2,
+      "position": [
+        1100,
+        0
+      ],
+      "parameters": {
+        "operation": "xlsx",
+        "binaryPropertyName": "statement",
+        "options": {
+          "headerRow": true,
+          "includeEmptyCells": true,
+          "sheetName": "Transactions",
+          "rawData": false
+        }
+      },
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "e132b4b5-7bfb-476f-9b18-4f0904c1a3f0",
+      "name": "Format Import Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1760,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const s = $json.summary || {};\nconst escape = v => String(v ?? '').replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}[c]));\nreturn [{json:{summary:s,report:'<pre>'+escape(JSON.stringify(s,null,2))+'</pre>'}}];"
+      }
+    },
+    {
+      "id": "59623c75-2675-461a-a940-0fd775e6a422",
+      "name": "Validate Categorize and Import",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.8,
+      "position": [
+        1540,
+        -100
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT finance.import_statement($1::text,$2::text,$3::jsonb) AS summary;",
+        "options": {
+          "queryReplacement": "={{ [$json.file_name,$json.file_hash,JSON.stringify($json.rows)] }}",
+          "largeNumbersOutput": "text"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "FinancePgImport02",
+          "name": "Finance - Import Database"
+        }
+      }
+    },
+    {
+      "id": "4f1e1779-dc10-43d5-91f7-5c0eafc212c6",
+      "name": "Restore Statement Binary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        770,
+        -100
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "return [{json:$json,binary:$('Validate Upload').first().binary}];"
+      }
+    },
+    {
+      "id": "0a91eee1-8240-4396-b8cf-70571c793195",
+      "name": "Return Import Summary",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1980,
+        0
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ {formSubmittedText:JSON.stringify($json.summary,null,2)} }}",
+        "options": {
+          "enableStreaming": false
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Upload Statement": {
+      "main": [
+        [
+          {
+            "node": "Validate Upload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Upload": {
+      "main": [
+        [
+          {
+            "node": "Valid Upload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Valid Upload": {
+      "main": [
+        [
+          {
+            "node": "Hash Statement",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Format Import Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CSV Format": {
+      "main": [
+        [
+          {
+            "node": "Extract CSV",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Extract XLSX",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract CSV": {
+      "main": [
+        [
+          {
+            "node": "Prepare Import Batch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Import Batch": {
+      "main": [
+        [
+          {
+            "node": "Validate Categorize and Import",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract XLSX": {
+      "main": [
+        [
+          {
+            "node": "Prepare Import Batch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Categorize and Import": {
+      "main": [
+        [
+          {
+            "node": "Format Import Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hash Statement": {
+      "main": [
+        [
+          {
+            "node": "Restore Statement Binary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Restore Statement Binary": {
+      "main": [
+        [
+          {
+            "node": "CSV Format",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Import Summary": {
+      "main": [
+        [
+          {
+            "node": "Return Import Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": true,
+    "timezone": "Europe/Prague",
+    "saveExecutionProgress": false,
+    "saveManualExecutions": false,
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "executionTimeout": 120
+  },
+  "staticData": null,
+  "meta": {
+    "aiBuilderAssisted": true,
+    "builderVariant": "mcp"
+  },
+  "nodeGroups": [
+    {
+      "id": "9674f5f4-425d-44b5-9485-103db95859d9",
+      "name": "Statement Import",
+      "nodeIds": [
+        "699f95ba-6b04-4b0e-928e-e4ef47406caf",
+        "2694b3dd-ef04-44be-a38f-6f71cef73070",
+        "156afcab-c92b-4847-906d-cf2bf19b782d",
+        "4f1e1779-dc10-43d5-91f7-5c0eafc212c6",
+        "53dcad90-742a-47b5-b694-7a59368af505",
+        "06fc8cac-3738-4370-a312-356f0501d8df",
+        "8a38c97c-1213-4224-9f7e-f8d49e1b59b5",
+        "49798d3b-1e82-4766-85ac-2443c740660d",
+        "59623c75-2675-461a-a940-0fd775e6a422",
+        "e132b4b5-7bfb-476f-9b18-4f0904c1a3f0",
+        "0a91eee1-8240-4396-b8cf-70571c793195"
+      ],
+      "description": "Extract canonical rows, validate and store an atomic import, and return a summary without retaining a waiting execution."
+    }
+  ],
+  "pinData": {},
+  "versionId": "ae1326e6-be30-4808-b472-ac82b1b7e4dc",
+  "versionCounter": 5,
+  "triggerCount": 1,
+  "sourceWorkflowId": null,
+  "tags": [],
+  "versionMetadata": {
+    "name": "Allow anonymous local demo access",
+    "description": "Updated nodes: Upload Statement"
+  }
+}
