@@ -27,11 +27,11 @@ services:
         - python
         - -c
         - >-
-          import json, os, urllib.request;
+          import os, urllib.request;
           port = os.environ.get('APP_PORT', '8080');
           response = urllib.request.build_opener(urllib.request.ProxyHandler({})).open(
-          f'http://127.0.0.1:{port}/health', timeout=2);
-          assert response.status == 200 and json.load(response)['status'] == 'ok'
+          f'http://127.0.0.1:{port}/', timeout=2);
+          assert response.status == 200
       interval: 10s
       timeout: 3s
       start_period: 5s
@@ -102,7 +102,7 @@ services:
         condition: service_healthy
         restart: true
     # The official image has no shell or HTTP client. This validates configuration;
-    # gateway_check additionally probes native readiness and real MCP/LLM requests.
+    # Integration tests additionally probe native readiness and real MCP/LLM requests.
     healthcheck:
       test: ["CMD", "/app/agentgateway", "--file", "/etc/agentgateway/config.yaml", "--validate-only"]
       interval: 30s

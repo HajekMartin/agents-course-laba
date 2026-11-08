@@ -1,6 +1,6 @@
-"""Allow running the package with python -m marketplace_agent."""
+"""Start the built-in smolagents web UI."""
 
-from marketplace_agent.cli import main
+from marketplace_agent.web import main
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    main()

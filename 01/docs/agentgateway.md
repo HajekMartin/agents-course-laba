@@ -90,7 +90,7 @@ LLM_TIMEOUT=120
 
 Use the actual Unsloth API port, a loaded model ID, and its API key. Port 8888 is an
 example/default, not a discovery assumption. Existing `AGENTGATEWAY_URL` and
-`LLM_BASE_URL` point the diagnostics client to gateway MCP and LLM listeners inside
+`LLM_BASE_URL` point the web agent to gateway MCP and LLM listeners inside
 Compose; Compose supplies those internal addresses. The Stage 01 `LLM_MODEL` field is
 retained for compatibility but Stage 04 uses only `UNSLOTH_MODEL`.
 
@@ -101,8 +101,9 @@ docker compose ps
 docker compose run --rm --no-deps agentgateway --file /etc/agentgateway/config.yaml --validate-only
 ```
 
-The infrastructure also starts without `.env`: MCP is usable, and the LLM route uses
-the sentinel model name `model-not-configured` until actual settings are supplied.
+The MCP services and gateway can start without `.env`: MCP is usable, and the LLM route
+uses the sentinel model name `model-not-configured` until actual settings are supplied.
+The web app requires a configured model ID and reports missing model configuration on startup.
 No Unsloth download, installation, model load, or server startup is performed.
 Changes to Compose environment variables require container recreation:
 
@@ -115,14 +116,14 @@ discovery healthchecks; there is no LLM startup dependency or inference healthch
 At runtime, unavailable MCP targets are handled independently. The official gateway
 image contains no shell, Python, or curl: its Docker healthcheck runs native config
 validation. A Docker `healthy` status alone does not prove traffic works; use the
-explicit native readiness and protocol diagnostics below. Readiness does not imply
+explicit native readiness and integration tests below. Readiness does not imply
 that Unsloth or a marketplace is available.
 
 ## Unsloth and Docker networking
 
 Unsloth stays on the Mac, outside Compose. Container `localhost` refers to that container;
 `host.docker.internal` is Docker Desktop's host address. A successful host curl does not
-prove container reachability. The online diagnostic runs from `app` on the same network.
+prove container reachability. The app uses that same Docker network.
 During verification, direct API discovery and inference were also executed from a
 temporary Python container sharing the gateway's exact network namespace.
 
@@ -139,11 +140,8 @@ See the official networking and Unsloth references below.
 In Unsloth, create/manage credentials in **Settings → API** and put the key in the local
 `.env`. Requests use Bearer authentication when configured. Model listing may include
 unloaded variants; use an entry with `loaded: true`. Diagnostics do not select or load
-another model. Gateway `/v1/models` reflects configuration and cannot replace this check:
-
-```bash
-docker compose exec app python -m marketplace_agent.gateway_check --models-only
-```
+another model. Gateway `/v1/models` reflects configuration, not upstream readiness.
+Use the existing Studio model listing to select a loaded ID; the app never loads a model.
 
 Copy the selected ID into `UNSLOTH_MODEL`, then recreate `app` and `agentgateway` as above.
 For the live verification on 2026-11-07, upstream `/v1/models` reported
@@ -151,75 +149,23 @@ For the live verification on 2026-11-07, upstream `/v1/models` reported
 HTTP 200, that model identity, and an assistant completion. The actual model ID is
 stored only in local configuration, not hardcoded in the gateway or application.
 
-## MCP verification
+## Protocol verification
+
+The web UI shows the agent's actual tool requests/results. Gateway traffic is visible with:
 
 ```bash
-docker compose exec app python -m marketplace_agent.gateway_check --mcp-only --schemas
+docker compose logs --tail 50 agentgateway
 ```
 
-This checks native gateway readiness, performs MCP initialization, discovers both tools,
-inspects input schemas, calls each search through agentgateway, and validates responses.
-It reports connections and source warnings separately. With default source permission
-flags, real tools return empty listings and their existing disabled-access warning.
-This verifies transport and source failure semantics; it is not a live marketplace search.
-The isolated Docker tests use the existing fixtures to also verify populated results.
+The existing integration tests initialize/discover/call both MCP tools through the gateway,
+validate their contracts, and verify direct/proxied fixture LLM routing. The internal
+`gateway_check.py` module retains reusable contract/integration helpers, with no CLI.
+Default source permissions return empty listings with their disabled-access warnings;
+this verifies transport/failure semantics, not populated live marketplace search.
 
-Minimal client, run inside `app` (or use localhost:3000 from a host environment):
-
-```python
-import asyncio
-from fastmcp import Client
-
-
-async def main():
-    async with Client("http://agentgateway:3000/mcp") as client:
-        for tool in await client.list_tools():
-            print(tool.name, tool.inputSchema)
-            result = await client.call_tool(tool.name, {"query": "notebook", "limit": 1})
-            print(result.structured_content)
-
-
-asyncio.run(main())
-```
-
-## LLM verification and diagnostics
-
-```bash
-docker compose exec app python -m marketplace_agent.gateway_check
-```
-
-Reports gateway readiness, both MCP connections/tool calls, upstream model discovery,
-a direct Unsloth completion, and the same completion through agentgateway. The LLM
-requests include the configured model ID, one user message, and a 128-token budget.
-Validation checks the completion type, assistant message, choices, and exact model
-identity; wording is not required to match. Failures return nonzero and redact request
-headers, upstream bodies, and credentials. Stage 05 `doctor` checks the agent endpoints;
-`doctor --offline` retains the original local-only configuration check.
-
-For a single LLM request from `app` without printing its key:
-
-```bash
-docker compose exec -T app python - <<'PY'
-import os
-import httpx
-
-response = httpx.post(
-    "http://agentgateway:3001/v1/chat/completions",
-    json={
-        "model": os.environ["UNSLOTH_MODEL"],
-        "messages": [{"role": "user", "content": "Reply with exactly: Hello"}],
-        "max_tokens": 128,
-    },
-    timeout=float(os.environ.get("LLM_TIMEOUT", "120")),
-    trust_env=False,
-)
-response.raise_for_status()
-print(response.json())
-PY
-```
-
-Successful chat transport does not establish native tool-calling compatibility. Stage 05
-adds a native-call capability probe and opt-in full-agent test; see [actual verification](agent.md#tests-and-actual-compatibility).
+Successful plain chat transport does not establish native tool-calling compatibility.
+The [agent live test](agent.md) exercises the complete smolagents cycle with the actual
+configured model. No diagnostic installs, selects or downloads a model.
 
 ## Automated tests
 
@@ -259,14 +205,14 @@ Substitute actual ports when different. No exact model wording or tool calling i
 | Docker cannot bind a gateway port | Change the corresponding `GATEWAY_*_PORT`, recreate the gateway, and use the new host URL. |
 | Gateway configuration is rejected | Run native `--validate-only`; check the pinned schema, all four upstream environment variables, and a numeric positive timeout. |
 | Gateway is waiting during initial Compose startup | Check both MCP healthchecks with `docker compose ps` and their logs. |
-| One search tool is missing | Run `--mcp-only --schemas`; inspect source container health/logs and Docker service names. Reconnect the MCP client after recovery. |
+| One search tool is missing | Inspect source container health/logs and Docker service names; rerun gateway integration checks. |
 | Empty listings with a warning | Existing source restrictions remain in force. See the Bazoš/Sbazar documents; do not bypass them. |
 | Unsloth discovery fails | Verify actual API port, `host.docker.internal`, listener binding, VPN/firewall and API key. Host-only success is insufficient. |
 | LLM HTTP 401 | Correct `UNSLOTH_API_KEY` and recreate gateway/app. No key is required on the local gateway listener itself. |
 | LLM HTTP 404 | Use the exact loaded ID from upstream `/v1/models`; check that the API base path includes `/v1` once. |
 | LLM HTTP 503 | The configured local upstream cannot be reached. MCP remains independent; no cloud model is used. |
 | LLM HTTP 504 | The configured timeout expired; check model responsiveness and adjust `LLM_TIMEOUT` if appropriate. |
-| Docker says healthy but requests fail | The gateway Docker check validates config; run the full online diagnostic to verify traffic. |
+| Docker says healthy but requests fail | The gateway Docker check validates config; run the integration tests to verify traffic. |
 | Changes to `.env` have no effect | Recreate containers; restarting alone does not apply Compose environment changes. |
 
 Use `docker compose logs --tail 100 agentgateway` for structured system/access logs,

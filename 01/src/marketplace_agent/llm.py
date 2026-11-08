@@ -1,15 +1,10 @@
 """Small OpenAI-compatible Chat Completions client; gateway traffic only."""
 
-import asyncio
-import json
 from typing import Any
 
-import httpx
-from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage, convert_to_openai_messages
-from langchain_core.outputs import ChatGeneration, ChatResult
-from langchain_core.utils.function_calling import convert_to_openai_tool
+from openai import APIError
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from smolagents import OpenAIServerModel
 
 from marketplace_agent.config import Settings
 
@@ -77,149 +72,40 @@ def parse_completion(payload: Any, model: str) -> dict:
         ) from exc
 
 
-class GatewayLLM:
-    """Use the existing Stage 04 model and LLM_BASE_URL; never contact Unsloth directly."""
+class GatewayModel(OpenAIServerModel):
+    """Use the framework's native OpenAI client, with no text-to-tool fallback."""
 
-    def __init__(self, settings: Settings, client: httpx.AsyncClient) -> None:
-        if not settings.llm_base_url:
-            raise AgentError("Set LLM_BASE_URL to the agentgateway LLM endpoint, including /v1.")
-        if not settings.unsloth_model or settings.unsloth_model in {
-            "your-loaded-model-id",
-            "model-not-configured",
-        }:
-            raise AgentError("Set UNSLOTH_MODEL to the loaded model ID already routed by Stage 04.")
-        self.settings = settings
-        self.client = client
-        self.base_url = str(settings.llm_base_url).rstrip("/")
-        self.model = settings.unsloth_model
-
-    async def _request(self, method: str, path: str, **kwargs: Any) -> dict:
+    def generate(self, *args, **kwargs):
         try:
-            async with asyncio.timeout(self.settings.llm_timeout):
-                response = await self.client.request(method, self.base_url + path, **kwargs)
-                response.raise_for_status()
-                payload = response.json()
-                if not isinstance(payload, dict):
-                    raise ValueError("Expected a JSON object")
-                return payload
-        except httpx.HTTPStatusError as exc:
-            status = exc.response.status_code
-            detail = {
-                400: "request/tools rejected; check native tool support and the chat template",
-                401: "upstream authentication failed; check UNSLOTH_API_KEY on the gateway",
-                404: "model or route missing; check UNSLOTH_MODEL and the gateway /v1 URL",
-                422: "request/tools rejected; check the model, chat template and request format",
-                503: "Unsloth upstream unavailable; start its API and load the configured model",
-                504: "Unsloth timed out; check the loaded model and LLM_TIMEOUT",
-            }.get(status, "gateway or Unsloth request failed; inspect service logs")
-            raise AgentError(f"LLM gateway HTTP {status}: {detail}.") from exc
-        except (httpx.TimeoutException, TimeoutError) as exc:
-            raise AgentError("LLM gateway timed out. Check Unsloth and LLM_TIMEOUT.") from exc
-        except httpx.RequestError as exc:
+            message = super().generate(*args, **kwargs)
+        except APIError as exc:
+            status = getattr(exc, "status_code", None)
             raise AgentError(
-                "LLM gateway unavailable. Check LLM_BASE_URL and agentgateway."
+                f"LLM gateway request failed (HTTP {status or 'unavailable'}). "
+                "Check agentgateway, Unsloth, the configured model and API key."
             ) from exc
-        except ValueError as exc:
-            raise AgentError(
-                "LLM gateway returned invalid JSON; check the endpoint format."
-            ) from exc
+        parse_completion(message.raw.model_dump(), self.model_id)
+        return message
 
-    async def complete(
-        self, messages: list[dict], tools: list[dict], *, tool_choice: str = "auto"
-    ) -> dict:
-        request = {
-            "model": self.model,
-            "messages": messages,
-            "max_tokens": self.settings.agent_max_tokens,
-        }
-        if tools:
-            request.update(tools=tools, tool_choice=tool_choice)
-        return parse_completion(
-            await self._request("POST", "/chat/completions", json=request), self.model
+    def parse_tool_calls(self, message):
+        raise AgentError(
+            "The model returned no native tool_calls. Check model tool support, "
+            "its Unsloth chat template and the gateway request format."
         )
 
-    async def check_connection(self) -> None:
-        """The gateway catalog alone does not establish that the host model is loaded."""
-        catalog = await self._request("GET", "/models")
-        models = catalog.get("data")
-        if not isinstance(models, list) or any(not isinstance(item, dict) for item in models):
-            raise AgentError("LLM gateway returned a malformed model catalog.")
-        if not any(item.get("id") == self.model for item in models):
-            raise AgentError("UNSLOTH_MODEL is absent from the gateway model catalog.")
 
-    async def probe_tools(self, registry: Any) -> None:
-        """Request and validate a native call, discard it, and never execute a probe search."""
-        message = await self.complete(
-            [
-                {
-                    "role": "user",
-                    "content": (
-                        "Protocol capability test only. Request one provided search tool "
-                        "with query "
-                        "'notebook' and limit 1 using native tool calling. Do not answer in prose. "
-                        "The application will validate but will not execute this probe."
-                    ),
-                }
-            ],
-            registry.definitions,
-            tool_choice="required",
-        )
-        calls = message.get("tool_calls", [])
-        if not calls:
-            raise AgentError(
-                "Native tool-calling probe failed: LLM returned text instead of tool_calls. "
-                "HTTP transport works, but model/tool parser/chat-template support is not "
-                "confirmed. No marketplace search was executed."
-            )
-        try:
-            for call in calls:
-                registry.validate(call["function"]["name"], call["function"]["arguments"])
-        except ValueError as exc:
-            raise AgentError(
-                "Native tool-calling probe returned invalid names or arguments. Check the "
-                "model, Unsloth tool parser/chat template and gateway request format."
-            ) from exc
-
-
-class GatewayChatModel(BaseChatModel):
-    """LangChain model adapter reusing the validated gateway-only HTTP transport."""
-
-    gateway: Any = Field(exclude=True, repr=False)
-
-    @property
-    def _llm_type(self) -> str:
-        return "marketplace-agentgateway"
-
-    def bind_tools(self, tools, *, tool_choice: str | None = None, **kwargs):
-        return self.bind(
-            tools=[convert_to_openai_tool(tool) for tool in tools],
-            tool_choice=tool_choice or "auto",
-            **kwargs,
-        )
-
-    def _generate(self, messages, stop=None, run_manager=None, **kwargs):
-        raise NotImplementedError("The gateway model supports async ainvoke only.")
-
-    async def _agenerate(self, messages, stop=None, run_manager=None, **kwargs) -> ChatResult:
-        response = await self.gateway.complete(
-            convert_to_openai_messages(messages),
-            kwargs.get("tools", []),
-            tool_choice=kwargs.get("tool_choice", "auto"),
-        )
-        calls = response.get("tool_calls", [])
-        try:
-            parsed = [
-                {
-                    "id": call["id"],
-                    "name": call["function"]["name"],
-                    "args": json.loads(call["function"]["arguments"]),
-                    "type": "tool_call",
-                }
-                for call in calls
-            ]
-            if any(not isinstance(call["args"], dict) for call in parsed):
-                raise ValueError("Arguments must be objects")
-        except (ValueError, TypeError) as exc:
-            raise AgentError("Malformed native tool arguments; expected JSON objects.") from exc
-        message = AIMessage(content=response.get("content") or "", tool_calls=parsed)
-        return ChatResult(generations=[ChatGeneration(message=message)])
+def create_model(settings: Settings) -> GatewayModel:
+    if (
+        not settings.llm_base_url
+        or not settings.unsloth_model
+        or settings.unsloth_model in {"model-not-configured", "your-loaded-model-id"}
+    ):
+        raise AgentError("Configure LLM_BASE_URL and the loaded UNSLOTH_MODEL in .env.")
+    return GatewayModel(
+        model_id=settings.unsloth_model,
+        api_base=str(settings.llm_base_url),
+        api_key="local-gateway",
+        client_kwargs={"timeout": settings.llm_timeout, "max_retries": 0},
+        retry=False,
+        max_tokens=settings.agent_max_tokens,
+    )

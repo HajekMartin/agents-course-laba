@@ -25,4 +25,4 @@ RUN groupadd --gid 10001 app \
 COPY --from=builder /app/.venv /app/.venv
 USER app
 EXPOSE 8080 8001 8002
-CMD ["python", "-m", "marketplace_agent", "serve"]
+CMD ["python", "-m", "marketplace_agent"]

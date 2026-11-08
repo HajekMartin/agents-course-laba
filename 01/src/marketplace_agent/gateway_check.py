@@ -1,12 +1,9 @@
-"""Explicit infrastructure diagnostics, without an agent or an LLM/tool loop."""
+"""Gateway contract and integration-check helpers; no application CLI."""
 
-import argparse
-import asyncio
 import json
 
 import httpx
 from fastmcp import Client
-from pydantic import ValidationError
 
 from marketplace_agent.config import Settings
 from marketplace_agent.domain.models import Listing
@@ -148,56 +145,3 @@ async def check_llm(settings: Settings, gateway_url: str, *, models_only: bool =
                 report_failure(label, exc)
                 ok = False
     return ok
-
-
-async def run(args: argparse.Namespace, settings: Settings) -> int:
-    ok = True
-    if not args.models_only:
-        try:
-            async with httpx.AsyncClient(timeout=3, trust_env=False) as client:
-                response = await client.get(args.ready_url)
-                response.raise_for_status()
-                if response.text.strip() != "ready":
-                    raise ValueError("Unexpected readiness response")
-                print("OK agentgateway: native readiness")
-        except Exception as exc:
-            report_failure("agentgateway readiness", exc)
-            ok = False
-        ok = (
-            await check_mcp(args.mcp_url or str(settings.agentgateway_url), schemas=args.schemas)
-            and ok
-        )
-    if not args.mcp_only:
-        ok = (
-            await check_llm(
-                settings, args.llm_url or str(settings.llm_base_url), models_only=args.models_only
-            )
-            and ok
-        )
-    return 0 if ok else 1
-
-
-def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    mode = parser.add_mutually_exclusive_group()
-    mode.add_argument("--mcp-only", action="store_true", help="Skip all LLM requests.")
-    mode.add_argument(
-        "--models-only", action="store_true", help="List upstream models; no inference."
-    )
-    parser.add_argument(
-        "--schemas", action="store_true", help="Print discovered tool input schemas."
-    )
-    parser.add_argument("--mcp-url", help="Override the MCP gateway URL.")
-    parser.add_argument("--llm-url", help="Override the LLM gateway base URL, including /v1.")
-    parser.add_argument("--ready-url", default="http://agentgateway:15021/healthz/ready")
-    args = parser.parse_args()
-    try:
-        settings = Settings()
-    except ValidationError:
-        print("FAIL configuration: run doctor --offline for field validation")
-        return 2
-    return asyncio.run(run(args, settings))
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

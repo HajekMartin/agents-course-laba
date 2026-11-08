@@ -47,10 +47,10 @@ class ToolRegistry:
             match = re.fullmatch(r"(bazos|sbazar)[_./:-]+search_listings", tool.name)
             if not match:
                 continue
-            # OpenAI function names allow 64 ASCII letters/digits/underscores/hyphens.
+            # smolagents additionally requires a valid Python identifier.
             name = (
                 tool.name
-                if re.fullmatch(r"[a-zA-Z0-9_-]{1,64}", tool.name)
+                if re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_]{0,63}", tool.name)
                 else ("search_" + hashlib.sha256(tool.name.encode()).hexdigest()[:24])
             )
             if name in self.tools:

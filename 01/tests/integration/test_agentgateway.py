@@ -19,7 +19,7 @@ import pytest
 import yaml
 from fastmcp import Client
 
-from marketplace_agent.agent import connect_agent
+from marketplace_agent.agent import MarketplaceAgent
 from marketplace_agent.config import Settings
 from marketplace_agent.gateway_check import (
     SEARCH_TOOLS,
@@ -393,27 +393,23 @@ def test_agent_native_tool_cycle_with_real_gateway_and_fixture_marketplaces(infr
     """Real HTTP/MCP orchestration, with an explicitly mocked LLM and invented fixtures."""
     _, urls, _ = infrastructure
 
-    async def run():
-        settings = Settings(
-            _env_file=None,
-            unsloth_model=TEST_MODEL,
-            llm_base_url=urls["llm"],
-            agentgateway_url=urls["mcp"],
-        )
-        async with connect_agent(settings) as agent:
-            reply = await agent.ask("Search both sources for test product, from 1000 CZK, limit 3.")
-            assert reply.tool_calls == 2
-            assert reply.results["searched_sources"] == ["Bazoš", "Sbazar"]
-            assert reply.results["count"] == 3
-            assert [listing["price"] for listing in reply.results["listings"]] == [
-                4000,
-                4000,
-                12500,
-            ]
-            assert reply.text == "Fixture search finished."
-            assert all(item["url"].startswith("https://") for item in reply.results["listings"])
-
-    asyncio.run(run())
+    settings = Settings(
+        _env_file=None,
+        unsloth_model=TEST_MODEL,
+        llm_base_url=urls["llm"],
+        agentgateway_url=urls["mcp"],
+    )
+    agent = MarketplaceAgent(settings)
+    try:
+        answer = agent.run("Search both sources for test product, from 1000 CZK, limit 3.")
+        assert agent.tool_call_count == 2
+        assert agent.last_results["searched_sources"] == ["Bazoš", "Sbazar"]
+        assert agent.last_results["count"] == 3
+        assert [item["price"] for item in agent.last_results["listings"]] == [4000, 4000, 12500]
+        assert "Fixture search finished." in answer
+        assert all(item["url"].startswith("https://") for item in agent.last_results["listings"])
+    finally:
+        agent.model.client.close()
 
 
 @pytest.mark.live

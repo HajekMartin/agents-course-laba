@@ -1,0 +1,14 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Marketplace: Start Web UI",
+      "type": "chrome",
+      "request": "launch",
+      "url": "http://localhost:8080",
+      "webRoot": "${workspaceFolder}/01",
+      "preLaunchTask": "Marketplace: Start",
+      "postDebugTask": "Marketplace: Stop"
+    }
+  ]
+}

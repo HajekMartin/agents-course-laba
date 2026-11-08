@@ -134,7 +134,7 @@ uv run --locked ruff format --check .
 Fixture HTML contains invented test data; httpx MockTransport supplies all marketplace
 responses. Tests cover URL/filter handling, missing values, price parsing/filtering,
 sorting/limit, empty/invalid pages, access failures, MCP registration/calls, and the
-HTTP endpoint using ASGITransport. Stage 01 tests still cover the CLI and health server.
+HTTP endpoint using ASGITransport. Configuration and web tests cover application setup.
 
 Only after operator permission, explicitly enable the optional live smoke test:
 

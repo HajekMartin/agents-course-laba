@@ -13,13 +13,11 @@ dependencies = [
     "fastmcp>=3,<4",
     "httpx>=0.28,<1",
     "jsonschema>=4.23,<5",
-    "langchain>=1,<2",
+    "smolagents[gradio,openai]>=1.26,<2",
     "pydantic>=2.10,<3",
     "pydantic-settings>=2.7,<3",
+    "ddgs>=9,<10",
 ]
-
-[project.scripts]
-marketplace-agent = "marketplace_agent.cli:main"
 
 [dependency-groups]
 dev = [

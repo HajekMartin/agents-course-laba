@@ -68,6 +68,11 @@ def render_results(payload: dict) -> str:
     if not payload:
         return ""
     lines = []
+    if lookup := payload.get("postcode_lookup"):
+        lines.append(
+            f"Search postcode: {lookup['postcode']} "
+            f"([source]({lookup['source_url']}), {lookup['place']})."
+        )
     for index, listing in enumerate(payload["listings"], 1):
         price = (
             f"{listing['price']:,}".replace(",", " ") + f" {listing['currency']}"
@@ -76,7 +81,7 @@ def render_results(payload: dict) -> str:
         )
         location = f" | {listing['location']}" if listing["location"] else ""
         lines.append(f"{index}. {listing['title']} — {price} | {listing['source']}{location}")
-        lines.append(f"   {listing['url']}")
+        lines.append(f"   [Original listing]({listing['url']})")
         if listing["description"]:
             description = " ".join(listing["description"].split())[:240]
             lines.append(f"   {description}")

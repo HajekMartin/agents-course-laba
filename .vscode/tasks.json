@@ -1,0 +1,28 @@
+{
+  "version": "2.0.0",
+  "options": { "cwd": "${workspaceFolder}/01" },
+  "tasks": [
+    {
+      "label": "Marketplace: Start",
+      "type": "process",
+      "command": "docker",
+      "args": ["compose", "up", "-d", "--build", "--wait"],
+      "problemMatcher": []
+    },
+    {
+      "label": "Marketplace: Stop",
+      "type": "process",
+      "command": "docker",
+      "args": ["compose", "stop"],
+      "problemMatcher": []
+    },
+    {
+      "label": "Marketplace: Tests",
+      "type": "process",
+      "command": "uv",
+      "args": ["run", "--locked", "pytest"],
+      "group": { "kind": "test", "isDefault": true },
+      "problemMatcher": []
+    }
+  ]
+}

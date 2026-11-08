@@ -90,47 +90,46 @@ class OpenAIHandler(BaseHTTPRequestHandler):
         message = {"role": "assistant", "content": json.dumps(payload)}
         finish_reason = "stop"
         if payload.get("tools"):
-            if payload["messages"][-1]["role"] == "tool":
-                calls = [
-                    call
-                    for item in payload["messages"]
-                    if item.get("tool_calls")
-                    for call in item["tool_calls"]
-                ]
-                outputs = [item for item in payload["messages"] if item["role"] == "tool"]
-                assert {item["tool_call_id"] for item in outputs} == {call["id"] for call in calls}
-                combined = json.loads(outputs[-1]["content"])["combined"]
-                assert combined["count"] > 0
-                message["content"] = json.dumps(
-                    {"answer": "Fixture search finished.", "exclude_urls": []}
-                )
-            else:
-                tools = payload["tools"]
-                if payload.get("tool_choice") == "required":
-                    tools = tools[:1]  # Capability probe; this call must never be executed.
-                message = {
-                    "role": "assistant",
-                    "content": None,
-                    "tool_calls": [
+            observed = any(
+                item.get("role") != "system" and "Observation:" in str(item.get("content", ""))
+                for item in payload["messages"]
+            )
+            tools = [
+                tool
+                for tool in payload["tools"]
+                if tool["function"]["name"].endswith("search_listings")
+            ]
+            calls = (
+                [("final_answer", {"answer": "Fixture search finished."})]
+                if observed
+                else [
+                    (
+                        tool["function"]["name"],
                         {
-                            "id": f"fixture-call-{index}",
-                            "type": "function",
-                            "function": {
-                                "name": tool["function"]["name"],
-                                "arguments": json.dumps(
-                                    {
-                                        "query": "test product",
-                                        "min_price": 1000,
-                                        "sort_by": "price_asc",
-                                        "limit": 3,
-                                    }
-                                ),
-                            },
-                        }
-                        for index, tool in enumerate(tools)
-                    ],
-                }
-                finish_reason = "tool_calls"
+                            "query": "test product",
+                            "min_price": 1000,
+                            "sort_by": "price_asc",
+                            "limit": 3,
+                        },
+                    )
+                    for tool in tools
+                ]
+            )
+            if observed:
+                assert "listings" in str(payload["messages"])
+            message = {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": f"fixture-call-{index}",
+                        "type": "function",
+                        "function": {"name": name, "arguments": json.dumps(arguments)},
+                    }
+                    for index, (name, arguments) in enumerate(calls)
+                ],
+            }
+            finish_reason = "tool_calls"
         self.respond(
             200,
             {
