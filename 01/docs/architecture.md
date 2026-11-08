@@ -1,43 +1,62 @@
-# Architecture
+# Architektura
 
-One Python package and four existing Compose services implement the project. The app is
-web-only: the standard **smolagents GradioUI** drives **ToolCallingAgent**. No custom
-frontend, interactive CLI, database, Node build or code-execution agent is included.
+Projekt tvoří jeden Python balíček a čtyři služby Docker Compose.
+Unsloth Studio s modelem běží samostatně na hostiteli.
 
 ```mermaid
 flowchart LR
-    User --> UI[GradioUI in app :8080]
+    User[Uživatel] --> UI[GradioUI ve službě app]
     UI --> Agent[smolagents ToolCallingAgent]
-    Agent -->|Chat Completions :3001/v1| Gateway[agentgateway]
-    Agent -->|MCP :3000/mcp| Gateway
-    Agent -->|Optional postcode lookup| Web[Internet search via smolagents]
-    Gateway -->|host.docker.internal| Unsloth[Unsloth Studio on Mac]
-    Gateway --> Bazos[Bazoš FastMCP :8001/mcp]
-    Gateway --> Sbazar[Sbazar FastMCP :8002/mcp]
-    Bazos --> BP[Bazoš provider]
-    Sbazar --> SP[Sbazar provider]
+    Agent -->|LLM API| Gateway[agentgateway]
+    Agent -->|MCP| Gateway
+    Agent -->|Dohledání PSČ| Web[Webové vyhledávání]
+    Gateway --> Unsloth[Unsloth Studio na hostiteli]
+    Gateway --> Bazos[bazos-mcp]
+    Gateway --> Sbazar[sbazar-mcp]
+    Bazos --> BP[Bazoš HTML]
+    Sbazar --> SP[Sbazar JSON]
 ```
 
-`app`, `bazos-mcp` and `sbazar-mcp` share the existing locked, non-root Python Dockerfile.
-agentgateway remains pinned to v1.7.0 and its digest. Host ports bind to loopback; MCP
-upstreams are internal. Compose refreshes gateway connections after MCP rebuilds.
-The app healthcheck requests the actual Gradio page, independent of model/source readiness.
+## Tok požadavku
 
-`config.py` loads environment variables over optional `.env` and defaults. `__main__.py`
-starts only the web UI. `agent.py` supplies the thin marketplace-specific wrappers around
-the framework's native tool loop. `llm.py` routes only to the configured gateway/model.
-`agent_tools.py` discovers and validates actual MCP identities/schemas. `results.py`
-reuses common price filtering/sorting and adds source attribution and final limits.
-`postcodes.py` supplies a built-in web-search wrapper for missing postcodes; only codes
-grounded in an unambiguous lookup or supplied by the user may enter the MCP location field.
-`gateway_check.py` retains gateway contract/integration-check helpers without a CLI.
+1. Agent zjistí názvy a schémata MCP nástrojů přes gateway.
+2. LLM vrátí nativní `tool_calls`. Python ověří argumenty a zavolá vybraný MCP nástroj.
+3. Adaptér bazaru načte omezený počet stránek a normalizuje souhrny inzerátů.
+4. Skutečný výsledek nebo chyba se vrátí modelu jako výsledek nástroje.
+5. LLM vytvoří shrnutí přes `final_answer`; Python připojí společně filtrovaný
+   a seřazený seznam s původními odkazy a varováními.
 
-The existing `SearchRequest` and `Listing` remain the shared contract. Providers stay
-independent of the agent and MCP transport. They fetch bounded summaries, honor explicit
-source-disable flags, filter prices and sort before limits. Both use native geographic
-filters; Sbazar resolves postcodes through its locality suggestions. Exact listing distances
-remain unverified. HTTP failures/challenges are not bypassed. Disabled/unavailable sources
-are not presented as successful empty searches.
+Dohledání PSČ přistupuje k webovému vyhledávání přímo; hledání inzerátů prochází MCP.
+Adaptéry bazarů jsou oddělené od agenta i transportu. Přehled modulů je v [popisu agenta](agent.md),
+porty a propojení služeb v [popisu gateway](agentgateway.md).
 
-See [agent.md](agent.md) for the native tool sequence and limits, [agentgateway.md](agentgateway.md)
-for routing, and [development.md](development.md) for the VS Code and Docker workflow.
+## Společný MCP kontrakt
+
+Oba servery poskytují `search_listings` se stejným modelem `SearchRequest`.
+Neplatné vstupy jsou odmítnuty před HTTP požadavkem.
+
+| Parametr | Význam a omezení |
+| --- | --- |
+| `query` | Hledaný produkt, 1–256 znaků |
+| `min_price`, `max_price` | Volitelné nezáporné celé částky v Kč, včetně hranic; minimum ≤ maximum |
+| `location` | Volitelné české PSČ, např. `46001` nebo `460 01`; mezera se odstraní |
+| `radius_km` | 0–1000 km, vyžaduje PSČ; při samotném PSČ se použije 25 km |
+| `sort_by` | `relevance` (výchozí), `price_asc`, `price_desc` |
+| `limit` | 1–50 výsledků, výchozí 10 |
+| `max_pages` | 1–5 stránek zdroje, výchozí 3 |
+
+Odpověď obsahuje `query`, `count`, `listings` a případně `warning`.
+Při načtení výsledků přidává `pages_scanned`, `scanned_count`, `filtered_count` a `has_more`.
+Každý `Listing` obsahuje `title`, `price`, `currency`, `location`, `url`, `description`.
+Neznámá cena a lokalita jsou `null`; cena se nedopočítává z textu.
+
+## Zpracování výsledků
+
+Společný filtr kontroluje ceny a názvy produktů, odstraňuje duplicitní URL a aplikuje řazení
+před limitem. Každý zdroj nejprve vrátí vlastní omezený výběr; agent poté spojí výsledky
+obou zdrojů a znovu použije společné filtry, řazení a konečný limit.
+Neznámá cena neprojde zadanou cenovou hranicí, jinak se řadí na konec.
+`relevance` zachovává pořadí zdrojů, nejde o společné skóre relevance.
+
+Vyčerpání počtu stránek i selhání další stránky se projeví varováním; již načtené nabídky
+se zachovají. Přesné vzdálenosti se neověřují. Rozsah a omezení řešení shrnuje [README](../README.md).

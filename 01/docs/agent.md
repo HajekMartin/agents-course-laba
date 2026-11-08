@@ -1,149 +1,67 @@
-# Python agent and stock web UI
+# Agent
 
-`web.py` creates the framework's **GradioUI**, connects its clear/new-chat actions to
-agent memory reset, and launches it locally. There are no custom frontend assets, browser
-session actors, chat API routes or application CLI. The VS Code launch profile runs the
-existing Compose deployment and opens the UI in Chrome.
+`MarketplaceAgent` rozšiřuje `smolagents.ToolCallingAgent` o pravidla hledání na bazarech.
+Smyčku LLM → nástroj → výsledek → LLM řídí smolagents. Rozhraní zajišťuje standardní GradioUI;
+`python -m marketplace_agent` spouští webový chat.
 
-`agent.py` subclasses **smolagents ToolCallingAgent** only for the existing marketplace
-rules: runtime discovery, argument/postcode validation, bounded history, common search
-parameters, final-result formatting and strict step/call limits. The framework owns the
-LLM/tool loop. `CodeAgent`, managed agents and unrelated tools are not enabled.
+## Pravidla volání nástrojů
 
-```mermaid
-sequenceDiagram
-    actor User
-    participant UI as Stock GradioUI
-    participant Agent as ToolCallingAgent
-    participant LLM as agentgateway LLM → Unsloth
-    participant MCP as agentgateway MCP
-    participant Web as Internet search
-    User->>UI: Search request
-    UI->>Agent: run(request)
-    Agent->>MCP: initialize, tools/list
-    MCP-->>Agent: Actual tool names and schemas
-    loop Bounded by AGENT_MAX_ITERATIONS
-        Agent->>LLM: Messages and native tool definitions
-        LLM-->>Agent: Native tool_calls
-        opt Town supplied without a postcode
-            Agent->>Web: lookup_postcode(town/district)
-            Web-->>Agent: Postcode candidates and source links
-            Agent->>LLM: Lookup observation or clarification requirement
-        end
-        Agent->>Agent: Validate name, schema and postcode evidence
-        Agent->>MCP: tools/call(original discovered identity)
-        MCP-->>Agent: Actual listings or source warning/error
-        Agent->>LLM: Framework observation with the real combined results
-        LLM-->>Agent: More native calls or final_answer
-    end
-    Agent-->>UI: Model summary and canonical factual listings/warnings
-    UI-->>User: Standard chat and tool-step view
-```
+- Nástroje se zjišťují přes MCP při prvním požadavku. Agent povoluje pouze
+  `search_listings` ve jmenných prostorech `bazos` a `sbazar`; ověřuje jejich schémata i vstupy.
+- Výchozí zadání používá oba zdroje, výslovná volba bazaru omezuje dostupné nástroje
+  i v navazujících dotazech. Selhání zvoleného zdroje nevyvolá hledání na druhém.
+- Každý zdroj se volá nejvýše jednou za tah. Stránkování probíhá uvnitř MCP volání
+  podle `max_pages`. První platné hledání určí stejné parametry pro zbytek tahu;
+  nový uživatelský dotaz je může změnit.
+- Po dokončení pokusů na vybraných zdrojích zůstane dostupný jen `final_answer`.
+  Model vytváří shrnutí, Python vykresluje skutečné nabídky a varování.
+  Model smí vyřadit pouze URL, které byly skutečně načteny.
+- Adaptér modelu přijímá nativní `tool_calls`. Chybná nebo zkrácená volání odmítá;
+  textové napodobeniny volání nástroje nespouští. Agent nemá nástroj pro vykonávání Python kódu.
 
-## Modules
+Filtr názvů před řazením odstraňuje zjevné příslušenství, díly, poptávky, výměny a neshodné
+číselné modely, pokud je uživatel nehledá. Jde o heuristiku; celé poškozené telefony
+nebo balíčky s příslušenstvím mohou zůstat. Minimální cena se neodhaduje.
 
-| Module | Responsibility |
+## PSČ a paměť
+
+`lookup_postcode` používá webové vyhledávání smolagents/DDGS, nejvýše 5 výsledků a timeout 10 s.
+Vyhledává název místa a PSČ, nikoli celou konverzaci. Jednoznačně nalezené PSČ se zdrojovým
+odkazem lze předat bazaru; při chybě nebo více kandidátech má agent požádat o upřesnění.
+Do MCP lze použít jen PSČ výslovně dodané uživatelem nebo podložené tímto nástrojem.
+Odkaz na zdroj dohledaného PSČ se připojí k výsledku; nejde o úřední ověření adresy.
+
+Paměť konverzace je omezená počtem tahů a velikostí kontextu. Agent si ponechá nejvýše
+32 dohledaných PSČ. **New chat** vymaže paměť i PSČ. Jedna instance slouží jedné lokální
+konverzaci; oddělené relace pro více uživatelů nejsou implementované.
+
+## Moduly
+
+| Soubor v `src/marketplace_agent/` | Úloha |
 | --- | --- |
-| `web.py` | Built-in smolagents GradioUI launch |
-| `agent.py` | ToolCallingAgent and marketplace/final-answer tool wrappers |
-| `agent_tools.py` | Actual MCP discovery, original schemas/name mapping, strict validation and calls |
-| `llm.py` | Framework OpenAIServerModel with native-only parsing and safe gateway diagnostics |
-| `results.py` | Existing shared price filters, global order/limit, URL deduplication and source attribution |
-| `postcodes.py` | Built-in web-search wrapper for postcode candidates and source evidence |
+| `web.py`, `__main__.py` | Spuštění GradioUI a reset konverzace |
+| `agent.py` | Agent a obálky nástrojů hledání a finální odpovědi |
+| `agent_tools.py` | Zjištění MCP nástrojů, validace a volání přes gateway |
+| `llm.py` | Klient modelu a kontrola nativních volání |
+| `results.py`, `providers/common.py`, `providers/matching.py` | Spojení, filtry a výpis výsledků |
+| `postcodes.py` | Dohledání PSČ se zdrojovým odkazem |
+| `config.py`, `domain/models.py` | Nastavení a společné datové modely |
+| `gateway_check.py` | Pomocné kontroly protokolů pro integrační testy |
 
-The model uses the existing `LLM_BASE_URL` and `UNSLOTH_MODEL`. Its local gateway API-key
-placeholder is not an Unsloth secret; only agentgateway injects `UNSLOTH_API_KEY`. No cloud
-model, provider fallback or model download is configured. Invalid/truncated calls fail
-before execution. Prose is never parsed into a pretend native marketplace request.
+## Konfigurace
 
-MCP tools are discovered on first use. Each call opens a short-lived stateless FastMCP
-connection through `AGENTGATEWAY_URL`. The original MCP identity and schema are retained;
-smolagents input types are derived from that schema, and the full schema plus the existing
-strict `SearchRequest` are checked before every call. No scraping provider is called directly.
-An explicitly named marketplace restricts the available tools, including follow-ups until
-the user changes that choice. A failed Bazoš-only request cannot execute Sbazar as a fallback.
+Úplná šablona je v [`.env.example`](../.env.example). Proměnné prostředí mají přednost
+před `.env` v pracovním adresáři a výchozími hodnotami.
 
-The system prompt contains the marketplace instructions only, without the framework's
-generic text-action examples or duplicate tool schemas. Native calls use API tool definitions
-and no text ReAct stop markers. Each source is offered once per turn; its warning/error is
-terminal for that attempt. Its MCP call automatically scans up to `max_pages` native pages
-(default 3, maximum 5), stopping at the source's end. This keeps the LLM loop small.
-The first valid search fixes the query and filters across all
-later steps, including source failures. New user turns can change those parameters.
-When all selected source attempts finish, lookup/search tools are withdrawn and the API
-explicitly selects the native `final_answer` function. The LLM still generates its answer.
-The next user turn restores tools. No text-to-tool fallback or hardcoded search is used.
-
-When the user gives a town without a postcode, the model can natively call `lookup_postcode`.
-This small wrapper uses smolagents' `DuckDuckGoSearchTool`/DDGS client with its default web
-search backends, a 10-second network timeout and five results. It searches only the town
-and postcode terms, not the full product conversation. Candidate codes must occur in
-postcode-related snippets whose title names the requested place, with a source URL.
-Exactly one distinct code authorizes its use in MCP search; ambiguous/empty/failed lookups
-require clarification. Search snippets are not official address validation. The final result
-includes the chosen code and source link. Web text is untrusted data, never instructions.
-Up to 32 resolved codes are retained in the local session; **New chat** clears them.
-The helper accesses Internet search directly, adds no MCP server and needs no API key.
-Existing search parameters and unverified-distance warnings are preserved.
-
-Source tools add only the related `max_pages` parameter. Before applying sort/limit,
-`providers/matching.py` rejects obvious accessories, component listings and wanted/trade ads
-unless those are requested, and checks numbered model terms in titles. It does not infer a
-minimum price, use descriptions as instructions or implement AI ranking. Phone bundles and
-clearly damaged whole phones are retained. Ambiguous or abbreviated titles can still be
-misclassified. The model can additionally exclude retrieved URLs in its final answer.
-Pagination uses Bazoš's actual next-link `crz` offsets and Sbazar's `offset`/`pagination.total`.
-Page budgets and later-page failures preserve results already retrieved and disclose partial
-coverage. The final response includes pages inspected and obvious ads filtered; no exhaustive
-marketplace or global cheapest-price claim is made.
-
-The built-in `final_answer` tool accepts a brief model summary and optionally original
-URLs of irrelevant retrieved ads. It never performs marketplace I/O. Python excludes those
-URLs, reapplies common prices, sorts all sources together and applies the final limit.
-Missing values are not inferred. Unknown excluded URLs are rejected. Source warnings
-replace potentially misleading prose. Exact radius matches are never claimed verified.
-
-History is in the framework's memory and bounded by complete turns and serialized context
-size. **New chat** clears it. The stock UI is intended for one local user/agent conversation;
-no multi-user session service is implemented. Gradio supplies the browser UI/history behavior.
-
-## Configuration
-
-Keep the existing `.env`; Compose routes the app to `agentgateway:3001/v1` and
-`agentgateway:3000/mcp`. The host Unsloth model runs separately.
-
-| Variable | Default | Meaning |
+| Proměnná | Výchozí hodnota | Význam |
 | --- | --- | --- |
-| `APP_HOST`, `APP_PORT` | `0.0.0.0`, `8080` | Gradio web bind; Compose publishes on host loopback |
-| `LLM_TIMEOUT` | 120 seconds | Local gateway/model request timeout |
-| `MCP_TIMEOUT` | 30 seconds | Discovery and individual tool request timeout |
-| `AGENT_MAX_ITERATIONS` | 20 | Framework steps, including native final_answer and parsing retries |
-| `AGENT_MAX_TOOL_CALLS` | 8 | Calls allowed in one model response |
-| `AGENT_MAX_TOKENS` | 4096 | LLM completion budget |
-| `AGENT_HISTORY_TURNS` | 6 | Retained conversation turns |
-| `AGENT_HISTORY_CHARS` | 64000 | Retained serialized context budget |
-| `AGENT_MAX_MESSAGE_CHARS` | 4000 | Maximum user message length |
+| `AGENT_MAX_ITERATIONS` | 20 | Maximum kroků včetně finální odpovědi a oprav chybných volání |
+| `AGENT_MAX_TOOL_CALLS` | 8 | Maximum volání v jedné odpovědi modelu |
+| `AGENT_MAX_TOKENS` | 4096 | Limit generované odpovědi modelu |
+| `AGENT_HISTORY_TURNS` | 6 | Limit uchovaných tahů konverzace |
+| `AGENT_HISTORY_CHARS` | 64000 | Limit uchovaného kontextu ve znacích |
+| `AGENT_MAX_MESSAGE_CHARS` | 4000 | Maximum znaků uživatelské zprávy |
+| `LLM_TIMEOUT`, `MCP_TIMEOUT` | 120 s, 30 s | Timeout modelu a jednotlivého MCP požadavku |
 
-The optional live test passed with the configured local Qwen3.5-9B GGUF model in Unsloth:
-native calls to both MCP tools, their observations, a native final answer, and a follow-up
-preserving price constraints and adding a postcode/radius. This verifies that particular
-loaded model and chat template, not every Unsloth model. Public user-requested searches
-are enabled by default; source-disable flags and actual HTTP failures are reported.
-Both providers have returned live listings during direct verification of the Turnov search.
-The updated native cycle was also verified for iPhone 17, postcode 51101, 30 km and
-CZK 17,000: both MCP sources were searched, 19 obvious irrelevant ads were filtered and
-three phone listings remained, without inventing a lower price bound. This is a live
-snapshot, not a guarantee of future availability or exact geographic distances.
-Rerun the optional live test after changing the model;
-a basic HTTP completion or mock test alone is insufficient.
-
-`POSTCODE_LIVE_E2E=true` enables a separate live test of model-selected web lookup followed
-by marketplace MCP execution; it additionally needs Internet access.
-That test passed with the local Unsloth model: native lookup for Liberec 1 found `46001`
-with a source link, followed by a Bazoš MCP call retaining the price and radius constraints.
-Search-engine availability varies; empty results/errors still require clarification.
-The local model can also return non-native or token-truncated responses; these remain
-explicit diagnostics, never simulated tool calls or invented listings.
-
-References: [smolagents agents and GradioUI](https://huggingface.co/docs/smolagents/en/reference/agents),
-[OpenAI-compatible models](https://huggingface.co/docs/smolagents/en/reference/models).
+Kompatibilitu konkrétního modelu a jeho šablony ověřuje [volitelný živý test](development.md#testy-s-dockerem-a-živými-službami).
+Samotná úspěšná textová odpověď z API nepotvrzuje podporu volání nástrojů.
