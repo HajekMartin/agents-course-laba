@@ -12,7 +12,6 @@ from marketplace_agent.providers.common import (
     USER_AGENT,
     SourceUnavailable,
     filter_and_sort,
-    robots_allows,
 )
 
 BASE_URL = "https://www.bazos.cz"
@@ -83,12 +82,6 @@ def parse_listings(html: str, page_url: str) -> list[Listing]:
 
 async def _search(request: SearchRequest, client: httpx.AsyncClient) -> dict:
     url = build_search_url(request)
-    robots = await client.get(f"{BASE_URL}/robots.txt", follow_redirects=False)
-    robots.raise_for_status()
-    if not robots_allows(robots.text, url):
-        raise SourceUnavailable(
-            "Bazos robots.txt disallows automated search; no search was fetched."
-        )
     response = await client.get(url, follow_redirects=False)
     response.raise_for_status()
     if "text/html" not in response.headers.get("content-type", ""):
@@ -120,13 +113,12 @@ async def _search(request: SearchRequest, client: httpx.AsyncClient) -> dict:
 
 
 async def search_listings(request: SearchRequest, client: httpx.AsyncClient | None = None) -> dict:
-    """Fetch one global result page, only with permission and an allowing robots policy."""
+    """Fetch one public result page for the user's request; do not bypass access errors."""
     empty = {"query": request.query, "count": 0, "listings": []}
-    if os.environ.get("BAZOS_ACCESS_PERMITTED") != "true":
+    if os.environ.get("BAZOS_ACCESS_PERMITTED", "true") != "true":
         return empty | {
             "warning": (
-                "Live Bazos access is disabled. Obtain Bazos operator permission before setting "
-                "BAZOS_ACCESS_PERMITTED=true. Robots restrictions will still be enforced."
+                "Live Bazos requests are disabled by configuration (BAZOS_ACCESS_PERMITTED=false)."
             )
         }
     try:

@@ -8,7 +8,9 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 from fastmcp import Client
 from mcp.types import Tool
+from openai.types.chat import ChatCompletion
 from smolagents import Model, ToolCallingAgent
+from smolagents.default_tools import FinalAnswerTool
 from smolagents.memory import TaskStep
 from smolagents.models import ChatMessage, ChatMessageToolCall, ChatMessageToolCallFunction
 
@@ -59,9 +61,7 @@ def native(name="bazos_search_listings", args=None, call_id="1"):
 
 
 def final(answer="Results below.", exclude=None):
-    args = {"answer": answer}
-    if exclude is not None:
-        args["exclude_urls"] = exclude
+    args = {"answer": answer, "exclude_urls": exclude or []}
     return [native("final_answer", args)]
 
 
@@ -70,10 +70,14 @@ class FakeModel(Model):
         super().__init__(model_id=MODEL)
         self.responses = list(responses)
         self.requests = []
+        self.available_tools = []
 
     def generate(self, messages, **kwargs):
         self.requests.append(copy.deepcopy(messages))
+        self.available_tools.append([tool.name for tool in kwargs.get("tools_to_call_from", [])])
         calls = self.responses.pop(0)
+        if isinstance(calls, str):
+            return ChatMessage(role="assistant", content=calls, tool_calls=[])
         return ChatMessage(role="assistant", content="", tool_calls=calls)
 
 
@@ -227,6 +231,54 @@ def test_native_model_never_parses_prose_into_a_tool_call():
         model.client.close()
 
 
+@pytest.mark.parametrize("final_only", [False, True])
+def test_gateway_requests_native_calls_without_text_action_stop_markers(final_only):
+    client = Mock()
+    client.chat.completions.create.return_value = ChatCompletion.model_validate(
+        {
+            "id": "test-completion",
+            "object": "chat.completion",
+            "created": 0,
+            "model": MODEL,
+            "choices": [
+                {
+                    "index": 0,
+                    "finish_reason": "tool_calls",
+                    "message": {
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [
+                            {
+                                "id": "final",
+                                "type": "function",
+                                "function": {
+                                    "name": "final_answer",
+                                    "arguments": '{"answer":"Done."}',
+                                },
+                            }
+                        ],
+                    },
+                }
+            ],
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+        }
+    )
+    model = GatewayModel(model_id=MODEL, client=client, retry=False)
+    tools = [FinalAnswerTool()]
+    if not final_only:
+        tools.append(agent_module.PostcodeLookup())
+    model.generate(
+        [ChatMessage(role="user", content="Search.")],
+        tools_to_call_from=tools,
+        stop_sequences=["Observation:", "Calling tools:"],
+    )
+    request = client.chat.completions.create.call_args.kwargs
+    assert "stop" not in request
+    assert request["tool_choice"] == (
+        {"type": "function", "function": {"name": "final_answer"}} if final_only else "required"
+    )
+
+
 def test_mcp_execution_uses_the_discovered_identity(registry):
     tool, request, args = registry.validate("bazos_search_listings", '{"query":"iPhone 15"}')
     client = SimpleNamespace(
@@ -296,6 +348,81 @@ def test_sequential_calls_and_explicit_single_source(build_agent):
     agent.run("Prohledej oba bazary.")
     assert len(calls) == 2
     assert agent.last_results["searched_sources"] == ["Bazoš", "Sbazar"]
+
+
+def test_completed_sources_leave_only_native_final_answer_available(build_agent):
+    agent, model, calls = build_agent(
+        [[native()], [native("sbazar_search_listings", call_id="2")], final()],
+        [payload(warning="Live access disabled."), payload(warning="Unsupported geography.")],
+    )
+    answer = agent.run("Najdi iPhone 15.")
+    assert len(calls) == 2
+    assert "bazos_search_listings" not in model.available_tools[1]
+    assert "sbazar_search_listings" in model.available_tools[1]
+    assert model.available_tools[-1] == ["final_answer"]
+    assert "Live access disabled" in answer and "Unsupported geography" in answer
+    system_prompt = str(model.requests[0][0])
+    assert "image_generator" not in system_prompt
+    assert "Action:" not in system_prompt
+
+
+def test_turnov_regression_keeps_results_and_filters_despite_prose_and_retry_attempts(build_agent):
+    args = {"query": "iPhone 17", "max_price": 17000, "location": "51101", "radius_km": 30}
+    agent, model, calls = build_agent(
+        [
+            [native("lookup_postcode", {"place": "Turnov"})],
+            [native(args=args)],
+            "Zkusím Sbazar se stejnými parametry.",
+            [native("sbazar_search_listings", args, "2")],
+            [native("sbazar_search_listings", {"query": "iPhone 17", "max_price": 17000}, "3")],
+            final(),
+        ],
+        [payload(warning="Live Bazos access is disabled."), payload(warning="Radius unsupported.")],
+    )
+    agent.postcode_lookup.ddgs = Mock()
+    agent.postcode_lookup.ddgs.text.return_value = [
+        {
+            "title": "PSČ Turnov",
+            "body": "PSČ 511 01",
+            "href": "https://postcodes.test/turnov",
+        }
+    ]
+    answer = agent.run("Najdi mi iPhone 17 v okolí 30km od Turnova. Cena do 17 000.")
+    assert len(calls) == 2
+    assert all(arguments["location"] == "51101" for _, arguments in calls)
+    assert agent.last_results["search"]["radius_km"] == 30
+    assert agent.last_results["search"]["max_price"] == 17000
+    assert agent.last_results["searched_sources"] == ["Bazoš", "Sbazar"]
+    assert model.available_tools[-1] == ["final_answer"]
+    assert "disabled" in answer and "unsupported" in answer
+
+
+@pytest.mark.parametrize(
+    "changed",
+    [
+        {"location": None, "radius_km": None},
+        {"radius_km": 1000},
+        {"max_price": None},
+        {"query": "PS5"},
+    ],
+)
+def test_later_steps_cannot_change_filters_after_source_failure(build_agent, changed):
+    args = {"query": "iPhone 15", "max_price": 17000, "location": "51101", "radius_km": 30}
+    agent, _, calls = build_agent(
+        [[native(args=args)], [native("sbazar_search_listings", args | changed, "2")], final()],
+        [payload(warning="Access disabled.")],
+    )
+    agent.run("Najdi iPhone 15 do 17000 Kč v okolí PSČ 51101 do 30 km.")
+    assert len(calls) == 1
+    assert agent.last_results["search"]["location"] == "51101"
+    assert agent.last_results["search"]["max_price"] == 17000
+
+
+def test_higher_default_budget_allows_recovery_after_eight_steps(build_agent):
+    agent, model, _ = build_agent([*["Zkusím to."] * 9, final("Co hledáš?")], [])
+    assert agent.max_steps == 20
+    assert agent.run("Najdi něco.") == "Co hledáš?"
+    assert len(model.requests) == 10
 
 
 def test_explicit_source_blocks_model_fallback_after_a_marketplace_failure(build_agent):
@@ -382,6 +509,7 @@ def test_native_online_lookup_enables_mcp_search_and_retains_evidence_for_follow
     assert "46001" in str(model.requests[1])
     agent.run("A teď jen Bazoš.", reset=False)
     assert len(calls) == 3
+    assert "lookup_postcode" in model.available_tools[3]
     agent.postcode_lookup.ddgs.text.assert_called_once()
     agent.clear()
     assert not agent.postcode_lookup.resolved
@@ -418,7 +546,7 @@ def test_iteration_and_call_limits(build_agent):
     )
     with pytest.raises(AgentError, match="Maximum agent iterations"):
         agent.run("Search.")
-    assert len(calls) == 2
+    assert len(calls) == 1  # Repeating a completed source never executes MCP again.
     agent, _, calls = build_agent(
         [[native(), native("sbazar_search_listings", call_id="2")]], [], agent_max_tool_calls=1
     )

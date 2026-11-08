@@ -1,147 +1,64 @@
 # Bazoš MCP — Stage 02
 
-A small Python FastMCP service exposes exactly one tool, `search_listings`, over
-Streamable HTTP at `/mcp`, port 8001. It searches listing summaries across categories.
-HTTP is stateless with JSON responses; no persistent MCP sessions are needed.
-The base Stage 01 application remains independent.
+FastMCP exposes one `search_listings` tool over stateless Streamable HTTP at `/mcp`,
+port 8001. It searches public listing summaries across all categories.
 
-## Inputs and output
+## Contract
 
-```python
-search_listings(
-    query: str,
-    min_price: int | None = None,
-    max_price: int | None = None,
-    location: str | None = None,
-    radius_km: int | None = None,
-    sort_by: Literal["relevance", "price_asc", "price_desc"] = "relevance",
-    limit: int = 10,
-) -> dict
-```
+Inputs are `query`, `min_price`, `max_price`, `location` (Czech postcode), `radius_km`,
+`sort_by` (`relevance`, `price_asc`, `price_desc`) and `limit` (1–50, default 10).
+Query length is 1–256 characters. Price bounds are inclusive nonnegative integer CZK
+amounts. Postcodes are normalized to five digits. Radius is 0–1000 and requires a postcode;
+location alone uses the source's default 25 km. Invalid inputs fail before HTTP.
 
-Text is stripped and must contain 1–256 characters. Prices are nonnegative integers,
-inclusive, with minimum no greater than maximum. `location` accepts a Czech postcode
-(`46001` or `460 01`), normalized to five digits. Town names are rejected because they
-would require the site's restricted postcode autocomplete. Radius is an integer 0–1000
-and requires a postcode; location alone uses the form's default 25 km. Limit is 1–50.
-Invalid parameters produce an MCP tool error before HTTP requests.
+The response contains `query`, `count`, `listings` and optionally `warning`. Each listing
+preserves its title, explicit price, currency, location, original URL and description.
+Unknown prices/locations are null; missing descriptions are empty strings. Unknown prices
+fail a requested price bound and sort last. Only validated Bazoš listing URLs are returned.
 
-The JSON-compatible result has `query`, `count` (returned listings, not total matches),
-and `listings`. Every listing has `title`, `price`, `currency` (`CZK`), `location`, `url`,
-and `description`. Unknown prices/locations are `null`; absent descriptions are empty
-strings. Listings with unknown prices are excluded when a price bound is requested.
-An optional `warning` explains restrictions, source failure, or geographic uncertainty.
-No sample listing data is returned by the running service.
+## Verified source behavior
 
-## Running and calling the tool
+The [global form](https://www.bazos.cz/) submits `/search.php` with `hledat`, `rubriky=www`,
+`cenaod`, `cenado`, `hlokalita`, `humkreis` and `kitx=ano`. Cards use `.inzeraty`,
+`h2.nadpis a`, `.inzeratycena`, `.inzeratylok` and `.popis`.
 
-From `01/`, using the existing Dockerfile:
+On 2026-11-08 a live user-requested search for iPhone 17 up to 17000 CZK, postcode 51101,
+radius 30 km returned HTTP 200, actual listings and form fields echoing those filters.
+This verifies retrieval and native filter submission, not exact distances from individual
+addresses. A missing query/postcode/radius confirmation returns a warning instead of
+silently presenting an unfiltered page. Geographic results always preserve this limitation.
 
-```bash
-docker compose up -d --build
-docker compose logs bazos-mcp
-```
+Public user-requested searches are enabled by default. The legacy
+`BAZOS_ACCESS_PERMITTED=false` toggle explicitly disables requests. robots.txt is not an
+application access gate. Its crawler directives are distinct from HTTP authorization;
+see [RFC 9309](https://www.rfc-editor.org/rfc/rfc9309.html). This is a bounded search
+client, not an indexing crawler. Actual HTTP errors, redirects, rate limits and access
+challenges are reported without bypasses or retries.
 
-The endpoint `http://bazos-mcp:8001/mcp` is internal to Compose. No MCP port is published.
-To discover and call it from another container in that network:
+Only one result page is fetched. The existing shared helper filters/sorts that page and
+applies the requested limit. Relevance preserves source order, which can include promoted
+items. There is no claim of global completeness or globally cheapest listings.
+
+## Running and testing
 
 ```bash
-docker compose exec -T bazos-mcp python - <<'PY'
-import asyncio
-from fastmcp import Client
-
-async def main():
-    async with Client("http://bazos-mcp:8001/mcp") as client:
-        print([tool.name for tool in await client.list_tools()])
-        result = await client.call_tool("search_listings", {
-            "query": "horské kolo", "min_price": 3000, "max_price": 15000,
-            "location": "46001", "radius_km": 25, "sort_by": "price_asc", "limit": 5,
-        })
-        print(result.data)
-
-asyncio.run(main())
-PY
-```
-
-Local startup: `uv run --locked python -m marketplace_agent.mcp.bazos_server`.
-This binds to `0.0.0.0:8001`. Local MCP runs read `BAZOS_ACCESS_PERMITTED` from the process
-environment; Compose reads it from optional `.env`. `MARKETPLACE_MODE` does not enable
-source access. All tests use mocks unless the live smoke test is explicitly enabled.
-
-## Source verification and access limitations
-
-Inspected on 2026-11-07:
-
-- The [global form](https://www.bazos.cz/) submits GET `/search.php`, with `hledat`,
-  `rubriky=www` (all categories), `cenaod`, `cenado`, `hlokalita` (postcode/place),
-  `humkreis` (km, default 25), and `kitx=ano`.
-- The [category page](https://pc.bazos.cz/) still uses `.inzeraty`, `h2.nadpis a`,
-  `.inzeratycena`, `.inzeratylok`, and `.popis`. The price header submits `order=1`.
-  Exact ordering/toggle semantics were not verified through restricted searches;
-  this provider omits `order` and sorts the fetched listings locally.
-- Bazoš [terms](https://www.bazos.cz/podminky.php) restrict unofficial applications and
-  require approval for direct API integration. Obtain operator permission before
-  setting `BAZOS_ACCESS_PERMITTED=true`; the default is disabled and makes no requests.
-- [robots.txt](https://www.bazos.cz/robots.txt) currently disallows `/search.php` and
-  wildcard query paths for search, location, radius, sorting, and price. With permission
-  enabled, the provider still checks robots and returns a warning without fetching a
-  disallowed search. There is no robots override or CAPTCHA bypass.
-
-The live search response, filter behavior, and result coverage could therefore not be
-verified. URL construction is based on current public forms, not proof of successful
-live filtering. Offline fixtures validate the implementation, not the marketplace.
-Full live operation requires an access policy that permits these requests.
-
-Geographic requests must be echoed by the returned form; otherwise no listings are
-returned. Even echoed values do not prove strict distance: listing cards contain no
-coordinates, and postcode-centered filtering may be approximate. Every geographic
-response warns about this; no distances or coordinates are invented.
-Nonempty results also require the form to echo the requested text query, so a generic
-page cannot silently pass as a successful search.
-
-Only one result page is fetched; no pagination or global cheapest-price claim.
-`relevance` preserves the source's matching order. Bazoš documents default ordering by
-date and TOP promotion, not semantic relevance. Unknown prices sort last in both price
-directions. Descriptions are source snippets and may be truncated by Bazoš. Layout
-changes, HTTP errors, redirects, rate limiting, unavailable robots, or unrecognized
-HTML return empty listings with a warning; there are no retries or fallback scraping.
-
-## Technical implementation
-
-- `domain/models.py`: two small Pydantic models, no MCP dependency.
-- `providers/bazos.py`: permission checks, a 15-second httpx timeout, global URL encoding,
-  BeautifulSoup's standard HTML parser, safe marketplace links, deduplication and
-  geographic form confirmation.
-- `providers/common.py`: existing robots and price filtering/sorting helpers, now also
-  reused by Sbazar without changing Bazoš behavior.
-- `mcp/bazos_server.py`: the single tool and Streamable HTTP entry point.
-
-The [reference index.ts](https://github.com/progresak/bazos-mcp-server/blob/main/src/index.ts)
-and [bazos.ts](https://github.com/progresak/bazos-mcp-server/blob/main/src/bazos.ts) informed
-the adapter and card selectors. The graphics-card path and stdio-only transport were
-replaced by global search and Python FastMCP HTTP. No ranking engine, persistence,
-detail tool, geocoding, gateway, frontend, or LLM agent is implemented.
-Stage 03 adds the independent [Sbazar MCP](sbazar-mcp.md) with the same tool contract.
-
-## Testing
-
-```bash
-uv run --locked pytest
+docker compose up -d --build --wait
+uv run --locked pytest tests/test_bazos.py
 uv run --locked ruff check .
 uv run --locked ruff format --check .
+BAZOS_LIVE_SMOKE=true uv run --locked pytest tests/test_bazos.py -m live -v
 ```
 
-Fixture HTML contains invented test data; httpx MockTransport supplies all marketplace
-responses. Tests cover URL/filter handling, missing values, price parsing/filtering,
-sorting/limit, empty/invalid pages, access failures, MCP registration/calls, and the
-HTTP endpoint using ASGITransport. Configuration and web tests cover application setup.
+The optional last command uses live Bazoš. Default tests use invented HTML and httpx mocks,
+including query/location form confirmation, prices, malformed pages, HTTP failures,
+explicit disabling, MCP registration/calls and the Streamable HTTP endpoint.
+The endpoint `http://bazos-mcp:8001/mcp` is internal to Compose. The Python agent accesses
+it via agentgateway. Local startup remains `python -m marketplace_agent.mcp.bazos_server`.
 
-Only after operator permission, explicitly enable the optional live smoke test:
+## Reuse
 
-```bash
-BAZOS_ACCESS_PERMITTED=true BAZOS_LIVE_SMOKE=true uv run --locked pytest -m live -v
-```
-
-It checks robots first and skips if search remains disallowed. Both flags must be set
-in the shell; a flag in `.env` alone does not enable this test. Neither flag bypasses
-source restrictions. The regular test suite never needs live Bazoš access.
+`domain/models.py` holds shared validation, `providers/bazos.py` handles bounded HTTP and
+card parsing, and `providers/common.py` holds source-independent price filtering/sorting.
+The [reference index.ts](https://github.com/progresak/bazos-mcp-server/blob/main/src/index.ts)
+and [bazos.ts](https://github.com/progresak/bazos-mcp-server/blob/main/src/bazos.ts) informed
+the original adapter. No detail scraping, persistence, new tool or container was added.

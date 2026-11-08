@@ -24,6 +24,7 @@ def test_defaults_do_not_require_future_services() -> None:
     assert settings.app_env == "development"
     assert settings.marketplace_mode == "demo"
     assert settings.app_port == 8080
+    assert settings.agent_max_iterations == 20
     assert settings.llm_base_url is None
     assert settings.llm_model is None
     assert settings.agentgateway_url is None

@@ -18,7 +18,6 @@ from marketplace_agent.mcp.sbazar_server import mcp
 from marketplace_agent.providers import sbazar
 
 PAYLOAD = json.loads((Path(__file__).parent / "fixtures" / "sbazar.json").read_text())
-ALLOW = "User-agent: *\nDisallow:\n"
 
 
 @pytest.fixture
@@ -30,8 +29,6 @@ def permitted(monkeypatch: pytest.MonkeyPatch) -> None:
 def search(request: SearchRequest | None = None, *, payload: object = PAYLOAD) -> dict:
     async def run() -> dict:
         def respond(http_request: httpx.Request) -> httpx.Response:
-            if http_request.url.path == "/robots.txt":
-                return httpx.Response(200, text=ALLOW)
             assert http_request.url.path == sbazar.SEARCH_PATH
             return httpx.Response(200, json=payload)
 
@@ -173,24 +170,8 @@ def test_invalid_payload_is_not_a_successful_empty_search(permitted: None, paylo
     assert result["warning"]
 
 
-@pytest.mark.parametrize("radius", [None, 0, 20, 50, 100, 1000])
-def test_geography_returns_warning_without_network(permitted: None, radius: int | None) -> None:
-    async def run() -> dict:
-        def reject(request: httpx.Request) -> httpx.Response:
-            pytest.fail("Unsupported geography must not make HTTP requests")
-
-        async with httpx.AsyncClient(transport=httpx.MockTransport(reject)) as client:
-            return await sbazar.search_listings(
-                SearchRequest(query="test", location="460 01", radius_km=radius), client
-            )
-
-    result = asyncio.run(run())
-    assert result["listings"] == []
-    assert "postcode/radius filtering is unsupported" in result["warning"]
-
-
 def test_access_disabled_without_network(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("SBAZAR_ACCESS_PERMITTED", raising=False)
+    monkeypatch.setenv("SBAZAR_ACCESS_PERMITTED", "false")
 
     async def run() -> dict:
         def reject(request: httpx.Request) -> httpx.Response:
@@ -199,34 +180,114 @@ def test_access_disabled_without_network(monkeypatch: pytest.MonkeyPatch) -> Non
         async with httpx.AsyncClient(transport=httpx.MockTransport(reject)) as client:
             return await sbazar.search_listings(SearchRequest(query="test"), client)
 
-    assert "operator permission" in asyncio.run(run())["warning"]
+    assert "disabled by configuration" in asyncio.run(run())["warning"]
+
+
+def test_user_search_is_enabled_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("SBAZAR_ACCESS_PERMITTED", raising=False)
+    assert search()["count"] > 0
+
+
+@pytest.mark.parametrize("radius, expected", [(None, 25), (0, 0), (30, 30), (1000, 1000)])
+def test_native_geography_resolves_postcode_and_preserves_radius(permitted, radius, expected):
+    calls = []
+
+    async def run():
+        def respond(request):
+            calls.append(request.url.path)
+            assert request.url.path != "/robots.txt"
+            if request.url.path == sbazar.LOCALITY_PATH:
+                assert dict(request.url.params) == {"query": "51101", "include_zip": "1"}
+                return httpx.Response(
+                    200,
+                    json={
+                        "results": [
+                            {
+                                "entity_id": 2751,
+                                "entity_type": "municipality",
+                                "suggest_first_row": "Turnov",
+                            },
+                            {
+                                "entity_id": 14581,
+                                "entity_type": "ward",
+                                "suggest_first_row": "Turnov",
+                            },
+                        ]
+                    },
+                )
+            assert request.url.path == sbazar.SEARCH_PATH
+            assert request.url.params["locality"] == "municipality,2751"
+            assert request.url.params["radius_precision"] == str(expected)
+            assert request.url.params["price_to"] == "17000"
+            return httpx.Response(200, json=PAYLOAD)
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+            return await sbazar.search_listings(
+                SearchRequest(
+                    query="test",
+                    max_price=17000,
+                    location="51101",
+                    radius_km=radius,
+                ),
+                client,
+            )
+
+    result = asyncio.run(run())
+    assert result["count"] > 0
+    assert "Turnov" in result["warning"] and "unverified" in result["warning"]
+    assert calls == [sbazar.LOCALITY_PATH, sbazar.SEARCH_PATH]
 
 
 @pytest.mark.parametrize(
-    "policy",
-    ["User-agent: *\nDisallow: /\n", "User-agent: *\nDisallow: /api/\n", "<html>CAPTCHA</html>"],
+    "payload",
+    [
+        {},
+        {"results": []},
+        {"results": None},
+        {
+            "results": [
+                {"entity_type": "municipality", "entity_id": "2751", "suggest_first_row": "Turnov"},
+            ]
+        },
+    ],
 )
-def test_restrictive_or_invalid_robots_stops_search(permitted: None, policy: str) -> None:
-    async def run() -> dict:
-        def respond(request: httpx.Request) -> httpx.Response:
-            assert request.url.path == "/robots.txt"
-            return httpx.Response(200, text=policy)
+def test_unresolved_postcode_never_falls_back_to_unfiltered_search(permitted, payload):
+    async def run():
+        def respond(request):
+            assert request.url.path == sbazar.LOCALITY_PATH
+            return httpx.Response(200, json=payload)
 
         async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
-            return await sbazar.search_listings(SearchRequest(query="test"), client)
+            return await sbazar.search_listings(
+                SearchRequest(query="test", location="51101"), client
+            )
 
     result = asyncio.run(run())
     assert result["listings"] == []
-    assert result["warning"].startswith("Sbazar robots.txt")
+    assert "could not resolve the postcode" in result["warning"]
 
 
-@pytest.mark.parametrize("phase", ["robots", "search"])
+@pytest.mark.parametrize("status", [403, 429, 503])
+def test_geographic_lookup_http_failure_is_reported_without_search(permitted, status):
+    async def run():
+        def respond(request):
+            assert request.url.path == sbazar.LOCALITY_PATH
+            return httpx.Response(status)
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+            return await sbazar.search_listings(
+                SearchRequest(query="test", location="51101"), client
+            )
+
+    result = asyncio.run(run())
+    assert result["listings"] == []
+    assert str(status) in result["warning"]
+
+
 @pytest.mark.parametrize("failure", [403, 429, 503, 302, "timeout", "connect"])
-def test_http_failures(permitted: None, phase: str, failure: int | str) -> None:
+def test_http_failures(permitted: None, failure: int | str) -> None:
     async def run() -> dict:
         def respond(request: httpx.Request) -> httpx.Response:
-            if phase == "search" and request.url.path == "/robots.txt":
-                return httpx.Response(200, text=ALLOW)
             if failure == "timeout":
                 raise httpx.ReadTimeout("test timeout", request=request)
             if failure == "connect":
@@ -248,8 +309,6 @@ def test_http_failures(permitted: None, phase: str, failure: int | str) -> None:
 def test_invalid_http_response(permitted: None, content_type: str, content: str) -> None:
     async def run() -> dict:
         def respond(request: httpx.Request) -> httpx.Response:
-            if request.url.path == "/robots.txt":
-                return httpx.Response(200, text=ALLOW)
             return httpx.Response(200, text=content, headers={"Content-Type": content_type})
 
         async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
@@ -265,8 +324,6 @@ def test_mcp_contract_and_invocation(monkeypatch: pytest.MonkeyPatch, permitted:
 
     async def mocked_search(request: SearchRequest) -> dict:
         def respond(http_request: httpx.Request) -> httpx.Response:
-            if http_request.url.path == "/robots.txt":
-                return httpx.Response(200, text=ALLOW)
             assert http_request.url.params["phrase"] == "test"
             assert http_request.url.params["price_from"] == "4000"
             return httpx.Response(200, json=PAYLOAD)
@@ -319,7 +376,7 @@ def test_mcp_contract_and_invocation(monkeypatch: pytest.MonkeyPatch, permitted:
 
 
 def test_streamable_http_discovery_and_invocation(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("SBAZAR_ACCESS_PERMITTED", raising=False)
+    monkeypatch.setenv("SBAZAR_ACCESS_PERMITTED", "false")
 
     async def run() -> None:
         app = mcp.http_app(path="/mcp", stateless_http=True, json_response=True)
@@ -369,20 +426,17 @@ def test_streamable_http_discovery_and_invocation(monkeypatch: pytest.MonkeyPatc
             assert not result.get("isError")
             data = result["structuredContent"]
             assert data["listings"] == []
-            assert "operator permission" in data["warning"]
+            assert "disabled by configuration" in data["warning"]
 
     asyncio.run(run())
 
 
 @pytest.mark.live
 @pytest.mark.skipif(
-    os.environ.get("SBAZAR_LIVE_SMOKE") != "true"
-    or os.environ.get("SBAZAR_ACCESS_PERMITTED") != "true",
-    reason="Requires Sbazar permission and explicit SBAZAR_LIVE_SMOKE=true opt-in",
+    os.environ.get("SBAZAR_LIVE_SMOKE") != "true",
+    reason="Set SBAZAR_LIVE_SMOKE=true for live requests",
 )
 def test_optional_live_smoke() -> None:
     result = asyncio.run(sbazar.search_listings(SearchRequest(query="kolo", limit=1)))
-    if "robots.txt disallows" in result.get("warning", ""):
-        pytest.skip(result["warning"])
     assert "warning" not in result, result
     assert result["count"] == len(result["listings"]) <= 1

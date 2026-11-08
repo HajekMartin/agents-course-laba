@@ -63,6 +63,15 @@ strict `SearchRequest` are checked before every call. No scraping provider is ca
 An explicitly named marketplace restricts the available tools, including follow-ups until
 the user changes that choice. A failed Bazoš-only request cannot execute Sbazar as a fallback.
 
+The system prompt contains the marketplace instructions only, without the framework's
+generic text-action examples or duplicate tool schemas. Native calls use API tool definitions
+and no text ReAct stop markers. Each source is offered once per turn; its warning/error is
+terminal for that attempt. The first valid search fixes the query and filters across all
+later steps, including source failures. New user turns can change those parameters.
+When all selected source attempts finish, lookup/search tools are withdrawn and the API
+explicitly selects the native `final_answer` function. The LLM still generates its answer.
+The next user turn restores tools. No text-to-tool fallback or hardcoded search is used.
+
 When the user gives a town without a postcode, the model can natively call `lookup_postcode`.
 This small wrapper uses smolagents' `DuckDuckGoSearchTool`/DDGS client with its default web
 search backends, a 10-second network timeout and five results. It searches only the town
@@ -95,7 +104,7 @@ Keep the existing `.env`; Compose routes the app to `agentgateway:3001/v1` and
 | `APP_HOST`, `APP_PORT` | `0.0.0.0`, `8080` | Gradio web bind; Compose publishes on host loopback |
 | `LLM_TIMEOUT` | 120 seconds | Local gateway/model request timeout |
 | `MCP_TIMEOUT` | 30 seconds | Discovery and individual tool request timeout |
-| `AGENT_MAX_ITERATIONS` | 8 | Framework steps, including native final_answer |
+| `AGENT_MAX_ITERATIONS` | 20 | Framework steps, including native final_answer and parsing retries |
 | `AGENT_MAX_TOOL_CALLS` | 8 | Calls allowed in one model response |
 | `AGENT_MAX_TOKENS` | 4096 | LLM completion budget |
 | `AGENT_HISTORY_TURNS` | 6 | Retained conversation turns |
@@ -105,9 +114,10 @@ Keep the existing `.env`; Compose routes the app to `agentgateway:3001/v1` and
 The optional live test passed with the configured local Qwen3.5-9B GGUF model in Unsloth:
 native calls to both MCP tools, their observations, a native final answer, and a follow-up
 preserving price constraints and adding a postcode/radius. This verifies that particular
-loaded model and chat template, not every Unsloth model. Live access remains restricted by
-the existing providers: both returned access warnings and zero listings. Populated live
-marketplace results are not verified. Rerun the optional live test after changing the model;
+loaded model and chat template, not every Unsloth model. Public user-requested searches
+are enabled by default; source-disable flags and actual HTTP failures are reported.
+Both providers have returned live listings during direct verification of the Turnov search.
+Rerun the optional live test after changing the model;
 a basic HTTP completion or mock test alone is insufficient.
 
 `POSTCODE_LIVE_E2E=true` enables a separate live test of model-selected web lookup followed
@@ -115,6 +125,8 @@ by marketplace MCP execution; it additionally needs Internet access.
 That test passed with the local Unsloth model: native lookup for Liberec 1 found `46001`
 with a source link, followed by a Bazoš MCP call retaining the price and radius constraints.
 Search-engine availability varies; empty results/errors still require clarification.
+The local model can also return non-native or token-truncated responses; these remain
+explicit diagnostics, never simulated tool calls or invented listings.
 
 References: [smolagents agents and GradioUI](https://huggingface.co/docs/smolagents/en/reference/agents),
 [OpenAI-compatible models](https://huggingface.co/docs/smolagents/en/reference/models).

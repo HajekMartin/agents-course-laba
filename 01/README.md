@@ -66,14 +66,23 @@ The existing MCP tools accept **postcodes**, not town names. When only a town/di
 provided, the model can call `lookup_postcode`, based on smolagents' built-in web search.
 An unambiguous postcode found in search snippets can be used with its source link. Multiple
 matches or a failed lookup require a district/address or PSČ; guessed codes remain blocked.
-No new service or API key is needed. Bazoš distances remain unverified; Sbazar cannot satisfy geographic
-filters. Warnings remain visible. Shared price filtering, global sorting, URL deduplication
+No new service or API key is needed. Both marketplaces use native radius filters. Sbazar
+resolves the postcode to its first municipal suggestion; postal areas can cover multiple
+places. Exact listing distances remain unverified and warnings stay visible.
+Shared price filtering, global sorting, URL deduplication
 and final limits apply to the combined retrieved results; fetched pages are not the whole market.
 
-**Current live-source limitation:** both providers default to disabled live access.
-Operator permission and an allowing robots policy are required. No restriction is bypassed.
-An empty tool response with a warning is reported as incomplete, not proof of no matches.
+Public, bounded searches requested by the user are **enabled by default**. The legacy
+`BAZOS_ACCESS_PERMITTED` and `SBAZAR_ACCESS_PERMITTED` flags are source toggles; set either
+to `false` to disable requests. robots.txt is not used as an application access gate.
+HTTP 403/429, timeouts and access challenges are reported without bypasses or retries.
+An empty tool response with an error warning is incomplete, not proof of no matches.
 See [Bazoš MCP](docs/bazos-mcp.md) and [Sbazar MCP](docs/sbazar-mcp.md).
+
+`AGENT_MAX_ITERATIONS` defaults to **20**. Each selected marketplace is called at most once
+per user turn, with identical search parameters across steps. Warnings/errors finish that
+source's attempt; the agent preserves the requested location, radius and price filters.
+After all selected sources respond, only native `final_answer` remains available.
 
 ## Architecture
 
@@ -114,7 +123,7 @@ Default tests use fake model responses and mocked MCP results with the real smol
 loop, including postcode evidence, ambiguous matches and lookup failures. Optional Docker
 tests use the pinned gateway and fixture marketplaces. The live
 test uses the actual loaded Unsloth model and actual MCP servers; source warnings and
-zero listings are reported honestly. A fixture test is not proof of live marketplace access.
+retrieved listing counts are reported honestly. A fixture test is not proof of live marketplace access.
 For the optional native postcode-lookup cycle, set `POSTCODE_LIVE_E2E=true` instead of
 `AGENT_LIVE_E2E=true` in the same live-test command; this also requires Internet access.
 
@@ -131,5 +140,5 @@ For the optional native postcode-lookup cycle, set `POSTCODE_LIVE_E2E=true` inst
 ## Project stages
 
 Stages 01–04 provide packaging, both MCP services and the gateway/Unsloth routes. Stage 05
-now uses smolagents and its stock web UI. Final submission work and verification of populated
-live results where access is permitted remain for Stage 06.
+now uses smolagents and its stock web UI, with verified live marketplace retrieval.
+Final demonstration and submission work remain for Stage 06.

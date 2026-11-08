@@ -16,14 +16,11 @@ from marketplace_agent.mcp.bazos_server import mcp
 from marketplace_agent.providers import bazos
 
 HTML = (Path(__file__).parent / "fixtures" / "bazos.html").read_text(encoding="utf-8")
-ALLOW = "User-agent: *\nDisallow:\n"
 
 
-def search(request: SearchRequest | None = None, *, html: str = HTML, robots: str = ALLOW) -> dict:
+def search(request: SearchRequest | None = None, *, html: str = HTML) -> dict:
     async def run() -> dict:
         def respond(http_request: httpx.Request) -> httpx.Response:
-            if http_request.url.path == "/robots.txt":
-                return httpx.Response(200, text=robots)
             assert http_request.url.path == "/search.php"
             return httpx.Response(200, text=html, headers={"Content-Type": "text/html"})
 
@@ -193,29 +190,8 @@ def test_location_confirmation_and_distance_warning(permitted: None) -> None:
     assert "50 km" in result["warning"]
 
 
-@pytest.mark.parametrize("rule", ["/search.php", "/*hledat=", "/*humkreis", "/"])
-def test_robots_restrictions(permitted: None, rule: str) -> None:
-    # The mock would return valid listings if the search URL were actually requested.
-    result = search(
-        SearchRequest(query="test product", location="46001"),
-        robots=f"User-agent: *\nDisallow: {rule}\n",
-    )
-    assert result["listings"] == []
-    assert "robots.txt disallows" in result["warning"]
-
-
-def test_robots_wildcards_specific_allow_and_unavailable_policy(permitted: None) -> None:
-    url = bazos.build_search_url(SearchRequest(query="test"))
-    assert bazos.robots_allows("User-agent: *\nDisallow: /\nAllow: /search.php\n", url)
-    assert bazos.robots_allows("User-agent: OtherBot\nDisallow: /\n", url)
-    assert bazos.robots_allows("User-agent: *\nDisallow: /search.php$\n", url)
-    result = search(robots="<html>Access denied</html>")
-    assert result["listings"] == []
-    assert "could not be verified" in result["warning"]
-
-
 def test_access_disabled_without_network(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("BAZOS_ACCESS_PERMITTED", raising=False)
+    monkeypatch.setenv("BAZOS_ACCESS_PERMITTED", "false")
 
     async def run() -> dict:
         def reject(request: httpx.Request) -> httpx.Response:
@@ -226,15 +202,18 @@ def test_access_disabled_without_network(monkeypatch: pytest.MonkeyPatch) -> Non
 
     result = asyncio.run(run())
     assert result["listings"] == []
-    assert "operator permission" in result["warning"]
+    assert "disabled by configuration" in result["warning"]
+
+
+def test_user_search_is_enabled_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("BAZOS_ACCESS_PERMITTED", raising=False)
+    assert search()["count"] > 0
 
 
 @pytest.mark.parametrize("failure", [403, 429, 503, 302, "timeout", "json"])
 def test_request_failure(permitted: None, failure: int | str) -> None:
     async def run() -> dict:
         def respond(request: httpx.Request) -> httpx.Response:
-            if request.url.path == "/robots.txt":
-                return httpx.Response(200, text=ALLOW)
             if failure == "timeout":
                 raise httpx.ReadTimeout("test timeout", request=request)
             if failure == "json":
@@ -257,8 +236,6 @@ def test_mcp_tool_registration_invocation_and_validation(
 
     async def mocked_search(request: SearchRequest) -> dict:
         def respond(http_request: httpx.Request) -> httpx.Response:
-            if http_request.url.path == "/robots.txt":
-                return httpx.Response(200, text=ALLOW)
             assert http_request.url.params["cenaod"] == "4000"
             return httpx.Response(200, text=HTML, headers={"Content-Type": "text/html"})
 
@@ -304,7 +281,7 @@ def test_mcp_tool_registration_invocation_and_validation(
 
 
 def test_streamable_http_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("BAZOS_ACCESS_PERMITTED", raising=False)
+    monkeypatch.setenv("BAZOS_ACCESS_PERMITTED", "false")
 
     async def run() -> None:
         app = mcp.http_app(path="/mcp", stateless_http=True, json_response=True)
@@ -356,20 +333,17 @@ def test_streamable_http_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
             assert response.status_code == 200
             result = response.json()["result"]["structuredContent"]
             assert result["listings"] == []
-            assert "operator permission" in result["warning"]
+            assert "disabled by configuration" in result["warning"]
 
     asyncio.run(run())
 
 
 @pytest.mark.live
 @pytest.mark.skipif(
-    os.environ.get("BAZOS_LIVE_SMOKE") != "true"
-    or os.environ.get("BAZOS_ACCESS_PERMITTED") != "true",
-    reason="Requires Bazos permission and explicit BAZOS_LIVE_SMOKE=true opt-in",
+    os.environ.get("BAZOS_LIVE_SMOKE") != "true",
+    reason="Set BAZOS_LIVE_SMOKE=true for live requests",
 )
 def test_optional_live_smoke() -> None:
     result = asyncio.run(bazos.search_listings(SearchRequest(query="kolo", limit=1)))
-    if "robots.txt disallows" in result.get("warning", ""):
-        pytest.skip(result["warning"])
     assert "warning" not in result, result
     assert result["count"] == len(result["listings"]) <= 1

@@ -21,10 +21,11 @@ async def search_listings(
     """Search Sbazar listing summaries; inclusive prices in CZK, limit 1..50.
 
     Relevance preserves source order; prices are sorted within one fetched result page.
-    Location accepts Czech postcodes (46001), matching Bazos validation. Geographic
-    filtering is currently unsupported: location/radius returns no listings and a warning.
+    Location accepts Czech postcodes (46001); the source resolves them to its first
+    municipal suggestion. Uses native radius filtering, default 25 km with location.
+    Exact listing distances are unverified; postal areas can cover multiple places.
     Returns query, count, listings (title, price, currency, location, url, description),
-    and an optional warning about source restrictions, unsupported filters or failures.
+    and an optional warning about location approximations or source failures.
     """
     request = SearchRequest(
         query=query,

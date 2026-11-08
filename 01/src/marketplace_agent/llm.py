@@ -76,6 +76,15 @@ class GatewayModel(OpenAIServerModel):
     """Use the framework's native OpenAI client, with no text-to-tool fallback."""
 
     def generate(self, *args, **kwargs):
+        tools = kwargs.get("tools_to_call_from")
+        if tools:
+            # Text ReAct stop markers can truncate output before its native tool call.
+            kwargs.pop("stop_sequences", None)
+            kwargs["tool_choice"] = (
+                {"type": "function", "function": {"name": "final_answer"}}
+                if len(tools) == 1 and tools[0].name == "final_answer"
+                else "required"
+            )
         try:
             message = super().generate(*args, **kwargs)
         except APIError as exc:
@@ -89,8 +98,9 @@ class GatewayModel(OpenAIServerModel):
 
     def parse_tool_calls(self, message):
         raise AgentError(
-            "The model returned no native tool_calls. Check model tool support, "
-            "its Unsloth chat template and the gateway request format."
+            "The model returned no native tool_calls. Call an available tool natively, "
+            "or final_answer to finish. Do not retry completed sources or change filters. "
+            "If this repeats, check Unsloth's model/chat template and gateway request format."
         )
 
 

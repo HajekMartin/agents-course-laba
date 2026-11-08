@@ -33,10 +33,11 @@ grounded in an unambiguous lookup or supplied by the user may enter the MCP loca
 `gateway_check.py` retains gateway contract/integration-check helpers without a CLI.
 
 The existing `SearchRequest` and `Listing` remain the shared contract. Providers stay
-independent of the agent and MCP transport. They fetch bounded summaries, enforce source
-permissions/robots, filter prices and sort before limits. No new marketplace scraping is introduced.
-Bazoš exact distances are unverified; Sbazar geographic filters return no listings and an
-explicit warning. Disabled/unavailable sources are not presented as successful empty searches.
+independent of the agent and MCP transport. They fetch bounded summaries, honor explicit
+source-disable flags, filter prices and sort before limits. Both use native geographic
+filters; Sbazar resolves postcodes through its locality suggestions. Exact listing distances
+remain unverified. HTTP failures/challenges are not bypassed. Disabled/unavailable sources
+are not presented as successful empty searches.
 
 See [agent.md](agent.md) for the native tool sequence and limits, [agentgateway.md](agentgateway.md)
 for routing, and [development.md](development.md) for the VS Code and Docker workflow.

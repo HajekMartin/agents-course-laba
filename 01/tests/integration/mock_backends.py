@@ -25,8 +25,19 @@ def mock_marketplace(provider, fixture: str) -> None:
 
     async def search(request):
         def respond(http_request: httpx.Request) -> httpx.Response:
-            if http_request.url.path == "/robots.txt":
-                return httpx.Response(200, text="User-agent: *\nAllow: /\n")
+            if http_request.url.path == sbazar.LOCALITY_PATH:
+                return httpx.Response(
+                    200,
+                    json={
+                        "results": [
+                            {
+                                "entity_id": 2751,
+                                "entity_type": "municipality",
+                                "suggest_first_row": "Turnov",
+                            }
+                        ]
+                    },
+                )
             return httpx.Response(
                 200,
                 content=(FIXTURES / fixture).read_bytes(),
@@ -100,7 +111,7 @@ class OpenAIHandler(BaseHTTPRequestHandler):
                 if tool["function"]["name"].endswith("search_listings")
             ]
             calls = (
-                [("final_answer", {"answer": "Fixture search finished."})]
+                [("final_answer", {"answer": "Fixture search finished.", "exclude_urls": []})]
                 if observed
                 else [
                     (

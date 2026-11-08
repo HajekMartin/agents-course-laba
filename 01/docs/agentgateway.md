@@ -160,8 +160,8 @@ docker compose logs --tail 50 agentgateway
 The existing integration tests initialize/discover/call both MCP tools through the gateway,
 validate their contracts, and verify direct/proxied fixture LLM routing. The internal
 `gateway_check.py` module retains reusable contract/integration helpers, with no CLI.
-Default source permissions return empty listings with their disabled-access warnings;
-this verifies transport/failure semantics, not populated live marketplace search.
+Public searches are enabled by default. Explicit source disabling and actual upstream
+failures return warnings; fixture tests establish transport behavior separately from live data.
 
 Successful plain chat transport does not establish native tool-calling compatibility.
 The [agent live test](agent.md) exercises the complete smolagents cycle with the actual

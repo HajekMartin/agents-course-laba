@@ -33,7 +33,7 @@ class Settings(BaseSettings):
     unsloth_model: str | None = Field(default=None, min_length=1)
     unsloth_api_key: SecretStr = SecretStr("")
     llm_timeout: float = Field(default=120, gt=0, le=3600)
-    agent_max_iterations: int = Field(default=8, ge=1, le=50)
+    agent_max_iterations: int = Field(default=20, ge=1, le=50)
     agent_max_tool_calls: int = Field(default=8, ge=1, le=32)
     agent_history_turns: int = Field(default=6, ge=1, le=50)
     agent_history_chars: int = Field(default=64000, ge=2000, le=1000000)

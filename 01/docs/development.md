@@ -63,4 +63,5 @@ LLM_BASE_URL=http://127.0.0.1:3001/v1 AGENTGATEWAY_URL=http://127.0.0.1:3000/mcp
 uv run --locked pytest tests/integration/test_agent_live.py -s
 ```
 
-No test failure is hidden by hardcoded search results. Source restrictions stay enforced.
+No test failure is hidden by hardcoded results. Actual HTTP failures and source-disable flags
+remain visible; no CAPTCHA or authentication bypass is implemented.
