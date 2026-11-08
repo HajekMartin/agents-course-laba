@@ -19,7 +19,8 @@ flowchart LR
   Agent <--> Memory[Five-interaction Simple Memory]
   Agent <--> Tools[Four fixed SQL tools / finance_reader]
   Tools --> Finance
-  Agent --> Guard[Check tool evidence and explicit amounts]
+  Agent --> Render[Render requested transaction rows exactly]
+  Render --> Guard[Check fresh tool evidence and numeric summaries]
   Guard --> Browser
   Codex[Codex development] --> MCP[Authenticated instance MCP]
   MCP --> Editor[n8n workflow editor/runtime]
@@ -48,6 +49,12 @@ at one-minute intervals with no hard-delete buffer. Running executions can tempo
 write data/binaries to disk. Direct form responses avoid abandoned waiting executions.
 Short chat memory exists only in the n8n process. See the README for exact privacy
 limits, the database schema, import fingerprint ambiguity, and local-model reliability.
+
+The model decides which read-only tool and filters to use. For transaction lists,
+a narrow Code node formats that tool's returned rows; financial amounts are copied
+as decimal strings rather than regenerated or calculated by the model. Summaries
+remain natural-language model responses checked against tool observations. A retry
+hint is a system instruction and does not modify the original user message.
 
 The official image's internal JavaScript task runner is used; no host filesystem,
 Docker socket, external runner, vector database or application service is added.

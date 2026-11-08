@@ -1,5 +1,34 @@
 # Verification
 
+## Preserve transaction-list intent — 2026-11-08
+
+The reported conversation returned all 29 database rows to the agent, but its
+answer was cut off and subsequent requests did not deliver a usable list. The
+chat model still had a 650-token output cap: the earlier 32000-token changes
+affected the separate PDF model only. Every user message also had an appended
+four-sentence instruction, the system asked for brief responses, and failed
+evidence checks retried under the same constraints. Agent memory retained drafts
+before the downstream verifier returned the visible answer. This was a workflow
+configuration problem; it is not evidence that the model cannot perform the task.
+No private statement data or transcript is included in these fixtures.
+
+The published chat now uses 32000 output tokens, 1500 seconds per model request,
+and a 3600-second workflow ceiling. The original user message is unchanged;
+retry guidance belongs in the system prompt. The model selects the database tool
+and filters, while a small formatter renders exact transaction rows directly from
+fresh tool observations. Summaries retain the numeric evidence check. Requested
+lists require fresh search results and cannot silently degrade into summaries.
+Search matches merchant or description, includes transfers when type is empty,
+and explicitly marks the 50-row cap. Tool descriptions are explicitly manual.
+
+`tests/transaction-list.mjs` passes with 29 synthetic rows, repeated identical
+payments, exact signed decimal strings, numeric descriptions, safe table escaping,
+empty results, truncation, missing evidence, unchanged retry messages and the
+32000-token chat setting. Existing `tests/evidence.mjs` still passes. The actual
+exported search SQL passes as finance_reader with 29 synthetic rows (including
+two own transfers and description-only merchant matches), exact spending
+6825.90 CZK and income 23456.64 CZK.
+
 ## PDF output limit raised to 32000 — 2026-11-08
 
 At the user's request, PDF Local Model maxTokens was increased from 12000 to

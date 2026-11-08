@@ -59,7 +59,8 @@ flowchart LR
   Agent <--> Memory[Simple Memory: five interactions]
   Agent <--> Tools[Four fixed read-only PostgreSQL tools]
   Tools --> DB
-  Agent --> Evidence[Verify database evidence]
+  Agent --> Render[Render requested transaction rows]
+  Render --> Evidence[Verify database evidence]
   Evidence --> Browser
   Codex[Codex development client] --> MCP[Instance-level n8n MCP]
   MCP --> Workflows[Build and validate workflows]
@@ -256,7 +257,10 @@ custom Base URL and API key. Responses API is disabled; native Chat Completions
 `tool_calls` and matching tool results remain managed by the genuine n8n AI Agent
 3.1. There is no HTTP-only imitation agent or cloud fallback. The selected local
 model's thinking mode is disabled for this workflow; generation is bounded and
-configured to reduce repeated text. Simple Memory 1.4 keeps five interactions per
+configured to reduce repeated text. The chat model allows up to **32000 output
+tokens** with a **1500-second request timeout** and **3600-second workflow timeout**.
+These are ceilings, not a requested response length; the server's context capacity
+still applies. Simple Memory 1.4 keeps five interactions per
 session in n8n memory; it is not persistent and resets on restart. A follow-up must
 query PostgreSQL again. The local model occasionally skips that query; the evidence
 workflow retries at most twice, then returns a safe message with no monetary answer. Earlier tuning runs also
@@ -266,7 +270,7 @@ removes unsupported numeric sentences. These limitations are not hidden by the t
 | Tool | Fixed operation and parameters |
 | --- | --- |
 | `get_spending_summary` | Category net spending and total; `start_date`, `end_date`, `currency` |
-| `search_transactions` | Merchant/category/type/amount filters, exact totals over all matches and at most 50 rows; adds `merchant`, `category`, `min_amount`, `transaction_type` |
+| `search_transactions` | Merchant or description/category/type/amount filters, exact totals over all matches and at most 50 rows; adds `merchant`, `category`, `min_amount`, `transaction_type`, `reply_format` |
 | `get_monthly_summary` | Monthly income, gross expenses, refunds, net spending, balance and calendar-month average; optional `category` |
 | `compare_periods` | Two periods' totals, exact changes and spending percentage change; `first_start`, `first_end`, `second_start`, `second_end`, `currency` |
 
@@ -275,7 +279,19 @@ coverage; default currency is CZK. Monthly output is capped at 120 months and ma
 truncation. Search truncation does not truncate its SQL-calculated totals. Queries
 never accept generated SQL. Category names in tool parameters are English.
 
-A final evidence check rejects answers with no actual tool observation and removes
+The user message reaches the agent unchanged. There is no four-sentence limit.
+For transaction lists the model selects `search_transactions` with
+`reply_format=transactions`; a small formatter renders the returned rows directly
+as a Czech table. It preserves exact signed decimal amounts, descriptions, missing
+merchants and legitimate identical payments. A direct Czech request to list
+transactions also requires fresh search results even if the model omits that mode.
+Lists state the returned and total match counts and explicitly report the 50-row
+limit. Narrow the period or filters for larger lists. An empty type filter includes
+own transfers; they still do not contribute to income or spending totals. Merchant
+search also searches descriptions, including when `merchant` is null.
+
+A final evidence check rejects answers with no actual tool observation. Exact
+tables use the verified database rows; model-generated summaries remove
 sentences with unsupported numeric values, including amounts stated as ranges. Tool steps stay internal to the workflow in
 normal use. This is a practical safeguard, not a formal proof of arbitrary prose;
 small local models can still choose an unsuitable tool, associate a known amount
@@ -292,6 +308,7 @@ Example questions:
 - „Kolik peněz jsem utratil v Alze?“
 - „Porovnej výdaje za září 2026 a říjen 2026.“
 - „Najdi transakce nad 2000 Kč.“
+- „Přesně vypiš všechny transakce v říjnu 2026 včetně příjmů a převodů.“
 - „Za co bych mohl nejvíc ušetřit?“
 
 ## Privacy and retention
@@ -362,6 +379,7 @@ seeds and distinct bank IDs for two otherwise identical purchases. No real bank 
 node tests/imports.mjs
 node tests/tools.mjs
 node tests/evidence.mjs
+node tests/transaction-list.mjs
 node tests/pdf-evidence.mjs
 docker compose exec -T postgres sh -c \
   'psql -U "$FINANCE_DB_USER" -d "$FINANCE_DB_NAME" -v ON_ERROR_STOP=1' < tests/database.sql
@@ -376,6 +394,14 @@ base tables, checks actual calls and amounts, and exercises one multi-turn sessi
 The application normally hides intermediate steps through its evidence node.
 Recorded synthetic evidence is in `tests/acceptance-results.json` and the final
 verification record is [docs/verification.md](docs/verification.md).
+
+`node tests/chat-list.mjs` tests the actual local model and three successive
+transaction-list requests in one chat session. It creates 29 temporary synthetic
+rows in the reserved February 2096 period, compares every displayed row with an
+independent SQL query, verifies description-only merchant matching and transfer
+handling under the reader role, and removes only its own import in a `finally`
+block. The reserved period must be empty. It prints test status only and never
+saves arbitrary chat responses or existing financial rows.
 
 First-run imports: CSV **42 inserted / 1 duplicate**; XLSX **1 inserted / 43 duplicates**.
 PDF **1 inserted / 3 duplicates**. Repeated imports insert zero. The final demo

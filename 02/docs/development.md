@@ -43,6 +43,15 @@ The instance is the development environment. Exported, reviewed JSON files are
 the source-controlled deliverables. Stage 02 exports are `finance-import.json` and `finance-agent.json`; see the README for credential reassignment.
 See [codex-mcp.md](codex-mcp.md) for authentication and execution permissions.
 
+After an MCP edit, compare the actual CLI export with the previous definition.
+The installed Chat Trigger 1.5 schema marks `options` visible only when public is
+false; an MCP graph roundtrip can drop existing hosted-chat options. Reapply the
+complete Finance Chat parameters explicitly in the final update, including
+`autoSaveHighlightedData=false`, the localhost origin and Czech interface text,
+then publish and read back the actual export. Keep Authentication=None for the
+authorized anonymous local demo and responseMode=lastNode so the evidence check
+and exact table formatter determine the visible answer.
+
 Stage 02 application setup is `node config/setup-finance.mjs`. It applies the finance
 migration and creates encrypted credentials; refer to the main README for current
 workflow operation, tests, privacy settings, and limitations.

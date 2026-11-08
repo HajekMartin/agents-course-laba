@@ -1,0 +1,44 @@
+// Regression tests execute the actual exported renderer and evidence nodes.
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+const wf=JSON.parse(readFileSync(new URL('../workflows/finance-agent.json',import.meta.url),'utf8'));
+const render=new Function('$json','$',wf.nodes.find(n=>n.name==='Render Transaction List').parameters.jsCode);
+const verify=new Function('$json','$runIndex',wf.nodes.find(n=>n.name==='Verify Database Evidence').parameters.jsCode);
+const rows=Array.from({length:29},(_,i)=>({transaction_date:'2096-02-01',amount:i<19?'1234.56':'-987.65',currency:'CZK',description:'Synthetic invoice 987654321',merchant:null,category:i<19?'Income':'Other',transaction_type:i<19?'income':'expense'}));
+const result={start_date:'2096-02-01',end_date_exclusive:'2096-03-01',currency:'CZK',reply_format:'transactions',match_count:29,truncated:false,transactions:rows};
+function check(data=result,question='Můžeš mi laskavě přesně vypsat ty transakce?'){
+ const intermediateSteps=data?[{action:{tool:'search_transactions'},observation:JSON.stringify([{result:data}])}]:[];
+ const rendered=render({output:'Invented draft: 999999 Kč.',intermediateSteps},()=>({first:()=>({json:{chatInput:question}})}))[0].json;
+ return verify(rendered,0)[0].json;
+}
+let checked=check();
+assert.equal(checked.verification.verified,true);
+assert.equal(checked.verification.renderedRows,29);
+assert.equal(checked.output.split('\n').filter(l=>l.startsWith('| 2096')).length,29,'Preserve legitimate identical transactions');
+assert.ok(checked.output.includes('1 234,56'));
+assert.ok(checked.output.includes('-987,65'));
+assert.ok(!checked.output.includes('999999'));
+assert.ok(checked.output.includes('987654321'),'Description digits are data, not fabricated statistics');
+assert.equal(check({...result,reply_format:'auto'}).verification.renderedRows,29,'Explicit user intent overrides prose mode');
+checked=check({...result,match_count:80,truncated:true});
+assert.equal(checked.verification.truncated,true);
+assert.ok(checked.output.includes('29 z 80'));
+assert.ok(checked.output.includes('omezen na 50'));
+checked=check({...result,match_count:0,transactions:[]});
+assert.equal(checked.verification.verified,true);
+assert.equal(checked.verification.renderedRows,0);
+checked=check(null);
+assert.equal(checked.verification.verified,false);
+assert.equal(checked.needsRetry,true,'A list requires fresh database evidence');
+checked=check({...result,transactions:[{...rows[0],description:'<script>x</script> | [link](https://invalid.test)'}],match_count:1});
+assert.ok(!checked.output.includes('<script>'));
+assert.ok(!checked.output.includes('[link]'));
+assert.equal(checked.verification.verified,true);
+const retry=new Function('$json','$',wf.nodes.find(n=>n.name==='Retry Database Query').parameters.jsCode);
+const original={chatInput:'Přesně vypiš transakce.',sessionId:'synthetic-test'};
+assert.equal(retry({verification:{responseKind:'transactions'}},()=>({first:()=>({json:original})}))[0].json.chatInput,original.chatInput);
+const agent=wf.nodes.find(n=>n.name==='Finance Agent');
+assert.equal(agent.parameters.text,'={{ $json.chatInput }}');
+assert.ok(!agent.parameters.options.systemMessage.includes('four sentences'));
+assert.equal(wf.nodes.find(n=>n.name==='Local Unsloth Model').parameters.options.maxTokens,32000);
+console.log('PASS: exact 29-row lists, duplicates, signs, description numbers, truncation, empty results, escaping, fresh evidence, unchanged user intent and chat token limit.');

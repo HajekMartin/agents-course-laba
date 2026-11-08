@@ -4,7 +4,8 @@ These are actual sanitized n8n 2.46.6 exports from the running instance:
 
 - `finance-import.json`: Finance - Import Bank Statement, supporting CSV/XLSX and text PDF, with a permanent
   production form and an upload-another result link.
-- `finance-agent.json`: Finance - AI Assistant, including four native PostgreSQL tools.
+- `finance-agent.json`: Finance - AI Assistant, including four native PostgreSQL tools,
+  exact transaction-table rendering and a 32000-token local chat model limit.
 
 Import through the n8n editor or documented Server CLI. Both exports are inactive
 and contain no credential values, pinned records or execution data. Create or reassign
