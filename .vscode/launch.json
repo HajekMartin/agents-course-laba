@@ -9,6 +9,15 @@
       "webRoot": "${workspaceFolder}/01",
       "preLaunchTask": "Marketplace: Start",
       "postDebugTask": "Marketplace: Stop"
+    },
+    {
+      "name": "Finance: Start n8n",
+      "type": "chrome",
+      "request": "launch",
+      "url": "http://localhost:5678",
+      "webRoot": "${workspaceFolder}/02",
+      "preLaunchTask": "Finance: Start",
+      "postDebugTask": "Finance: Stop"
     }
   ]
 }

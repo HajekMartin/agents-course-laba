@@ -23,6 +23,22 @@
       "args": ["run", "--locked", "pytest"],
       "group": { "kind": "test", "isDefault": true },
       "problemMatcher": []
+    },
+    {
+      "label": "Finance: Start",
+      "type": "process",
+      "command": "docker",
+      "args": ["compose", "up", "-d", "--wait", "--wait-timeout", "180"],
+      "options": { "cwd": "${workspaceFolder}/02" },
+      "problemMatcher": []
+    },
+    {
+      "label": "Finance: Stop",
+      "type": "process",
+      "command": "docker",
+      "args": ["compose", "stop"],
+      "options": { "cwd": "${workspaceFolder}/02" },
+      "problemMatcher": []
     }
   ]
 }
